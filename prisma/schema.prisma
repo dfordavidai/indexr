@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  name          String?
+  role          Role     @default(USER)
+  credits       Int      @default(0)
+  planId        String?
+  plan          Plan?    @relation(fields: [planId], references: [id])
+  stripeCustomerId String? @unique
+  stripeSubscriptionId String? @unique
+  telegramChatId String?
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  submissions   Submission[]
+  apiKeys       ApiKey[]
+  creditLogs    CreditLog[]
+
+  @@index([email])
+}
+
+model Plan {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  slug          String   @unique
+  price         Int      // cents
+  creditsPerMonth Int
+  stripePriceId String?
+  features      String[] // JSON array of feature strings
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  users         User[]
+}
+
+model Submission {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url           String
+  status        IndexStatus @default(PENDING)
+  method        IndexMethod @default(GOOGLE_API)
+  googleJobId   String?
+  indexedAt     DateTime?
+  lastCheckedAt DateTime?
+  errorMessage  String?
+  creditsCost   Int      @default(1)
+  source        String   @default("dashboard") // dashboard | api | csv | telegram
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ApiKey {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  keyHash       String   @unique
+  keyPrefix     String   // first 8 chars for display
+  lastUsedAt    DateTime?
+  usageCount    Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@index([keyHash])
+  @@index([userId])
+}
+
+model CreditLog {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  delta         Int      // positive = added, negative = spent
+  reason        String   // subscription_renewal | submission | manual_adjustment | refund
+  referenceId   String?  // submissionId or stripePaymentId
+  balanceAfter  Int
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum IndexStatus {
+  PENDING
+  QUEUED
+  SUBMITTED
+  CRAWLED
+  INDEXED
+  FAILED
+  SKIPPED
+}
+
+enum IndexMethod {
+  GOOGLE_API
+  SITEMAP_PING
+  FETCH_AS_GOOGLE
+  INDEXNOW
+}

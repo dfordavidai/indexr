@@ -1,0 +1,79 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: indexr_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-indexr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-indexr_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-indexr}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-indexr}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: indexr_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: indexr_app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-indexr}:${POSTGRES_PASSWORD:-indexr_secret}@postgres:5432/${POSTGRES_DB:-indexr}
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+    env_file:
+      - .env
+    ports:
+      - '3000:3000'
+    command: sh -c "npx prisma migrate deploy && npm start"
+
+  workers:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: indexr_workers
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-indexr}:${POSTGRES_PASSWORD:-indexr_secret}@postgres:5432/${POSTGRES_DB:-indexr}
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+    env_file:
+      - .env
+    command: sh -c "npm run workers:start"
+
+volumes:
+  postgres_data:
+  redis_data:
