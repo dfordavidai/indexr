@@ -68,7 +68,7 @@ export async function handleWebhook(
 
   switch (event.type) {
     case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.CheckoutSession
+      const session = event.data.object as Stripe.Checkout.Session
       const userId = session.metadata?.userId
       const planId = session.metadata?.planId
       if (!userId || !planId) break
