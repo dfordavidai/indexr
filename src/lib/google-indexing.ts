@@ -38,7 +38,7 @@ export async function submitUrlToGoogleIndexingApi(url: string): Promise<Indexin
     return {
       url,
       type: 'URL_UPDATED',
-      notifyTime: response.data.urlNotificationMetadata?.latestUpdate?.notifyTime,
+      notifyTime: response.data.urlNotificationMetadata?.latestUpdate?.notifyTime ?? undefined,
       urlNotificationMetadata: response.data.urlNotificationMetadata as IndexingResult['urlNotificationMetadata'],
     }
   } catch (err: unknown) {
