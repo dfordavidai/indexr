@@ -1,117 +1,45 @@
-generator client {
-  provider = "prisma-client-js"
-}
+FROM node:20-alpine AS base
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat openssl
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
 
-model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  passwordHash  String
-  name          String?
-  role          Role     @default(USER)
-  credits       Int      @default(0)
-  planId        String?
-  plan          Plan?    @relation(fields: [planId], references: [id])
-  stripeCustomerId String? @unique
-  stripeSubscriptionId String? @unique
-  telegramChatId String?
-  emailVerified Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+# Build the app
+FROM base AS builder
+RUN apk add --no-cache openssl libc6-compat
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npx prisma generate
+RUN npm run build
 
-  submissions   Submission[]
-  apiKeys       ApiKey[]
-  creditLogs    CreditLog[]
+# Production runner
+FROM base AS runner
+WORKDIR /app
+RUN apk add --no-cache openssl
 
-  @@index([email])
-}
+ENV NODE_ENV=production
 
-model Plan {
-  id            String   @id @default(cuid())
-  name          String   @unique
-  slug          String   @unique
-  price         Int      // cents
-  creditsPerMonth Int
-  stripePriceId String?
-  features      String[] // JSON array of feature strings
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
 
-  users         User[]
-}
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
 
-model Submission {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  url           String
-  status        IndexStatus @default(PENDING)
-  method        IndexMethod @default(GOOGLE_API)
-  googleJobId   String?
-  indexedAt     DateTime?
-  lastCheckedAt DateTime?
-  errorMessage  String?
-  creditsCost   Int      @default(1)
-  source        String   @default("dashboard") // dashboard | api | csv | telegram
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+USER nextjs
 
-  @@index([userId])
-  @@index([status])
-  @@index([createdAt])
-}
+EXPOSE 3000
 
-model ApiKey {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name          String
-  keyHash       String   @unique
-  keyPrefix     String   // first 8 chars for display
-  lastUsedAt    DateTime?
-  usageCount    Int      @default(0)
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
 
-  @@index([keyHash])
-  @@index([userId])
-}
-
-model CreditLog {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  delta         Int      // positive = added, negative = spent
-  reason        String   // subscription_renewal | submission | manual_adjustment | refund
-  referenceId   String?  // submissionId or stripePaymentId
-  balanceAfter  Int
-  createdAt     DateTime @default(now())
-
-  @@index([userId])
-}
-
-enum Role {
-  USER
-  ADMIN
-}
-
-enum IndexStatus {
-  PENDING
-  QUEUED
-  SUBMITTED
-  CRAWLED
-  INDEXED
-  FAILED
-  SKIPPED
-}
-
-enum IndexMethod {
-  GOOGLE_API
-  SITEMAP_PING
-  FETCH_AS_GOOGLE
-  INDEXNOW
-}
+CMD ["node", "server.js"]
