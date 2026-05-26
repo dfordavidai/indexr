@@ -50,17 +50,33 @@ interface Plan {
   isActive: boolean; _count: { users: number }
 }
 
+interface DripCampaign {
+  id: string; name: string; status: string; method: string
+  urlsTotal: number; urlsSubmitted: number; urlsPerDay: number
+  minDelayMin: number; maxDelayMin: number; smartDrip: boolean
+  creditsReserved: number; nextRunAt: string | null; completedAt: string | null
+  createdAt: string; user: { email: string; id: string }
+}
+
+interface GSAccount {
+  id: string; label: string; clientEmail: string
+  isActive: boolean; isHealthy: boolean
+  dailyQuota: number; quotaUsed: number; quotaResetAt: string | null
+  lastHealthCheck: string | null; lastUsedAt: string | null; priority: number; createdAt: string
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_COLOR: Record<string, string> = {
   INDEXED: 'var(--green)', CRAWLED: 'var(--yellow)', FAILED: 'var(--red)',
   QUEUED: 'var(--blue)', PENDING: 'var(--text-muted)', SUBMITTED: '#c9d1d9', SKIPPED: 'var(--text-dim)',
+  ACTIVE: 'var(--green)', PAUSED: 'var(--yellow)', CANCELLED: 'var(--red)', COMPLETED: 'var(--blue)',
 }
 const METHOD_COLOR: Record<string, string> = {
   GOOGLE_API: 'var(--blue)', INDEXNOW: 'var(--green)', SITEMAP_PING: 'var(--yellow)', FETCH_AS_GOOGLE: '#c9d1d9',
 }
 
-const TABS = ['overview', 'users', 'queue', 'engine', 'plans', 'submissions'] as const
+const TABS = ['overview', 'users', 'queue', 'engine', 'plans', 'submissions', 'drip', 'gsa'] as const
 type Tab = typeof TABS[number]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -100,6 +116,7 @@ function truncateUrl(url: string, len = 55) {
 
 function fmt(n: number) { return n.toLocaleString() }
 function fmtDate(d: string) { return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) }
+function fmtDateTime(d: string) { return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) }
 
 // ─── Mini Bar Chart ───────────────────────────────────────────────────────────
 function MiniBarChart({ data }: { data: { day: string; count: number }[] }) {
@@ -160,6 +177,21 @@ function AdminPageInner() {
   const [planForm, setPlanForm] = useState({ name: '', slug: '', price: '', creditsPerMonth: '', features: '', stripePriceId: '' })
   const [blacklistInput, setBlacklistInput] = useState('')
   const [selectedJobs, setSelectedJobs] = useState<Set<string>>(new Set())
+
+  // Drip state
+  const [dripCampaigns, setDripCampaigns] = useState<DripCampaign[]>([])
+  const [dripCounts, setDripCounts] = useState({ active: 0, paused: 0, completed: 0, cancelled: 0 })
+  const [dripFilter, setDripFilter] = useState('all')
+  const [dripPage, setDripPage] = useState(1)
+  const [dripPages, setDripPages] = useState(1)
+
+  // GSA state
+  const [gsAccounts, setGsAccounts] = useState<GSAccount[]>([])
+  const [nextQuotaReset, setNextQuotaReset] = useState<string | null>(null)
+  const [showAddGSA, setShowAddGSA] = useState(false)
+  const [gsaForm, setGsaForm] = useState({ label: '', credentialsJson: '', dailyQuota: 200, priority: 0 })
+  const [gsaSaving, setGsaSaving] = useState(false)
+  const [gsaHealthChecking, setGsaHealthChecking] = useState<string | null>(null)
 
   const notify = (msg: string, ok = true) => {
     setToast({ msg, ok })
@@ -224,6 +256,35 @@ function AdminPageInner() {
   }, [subPage, subFilter, subSearch])
 
   useEffect(() => { if (tab === 'submissions') loadSubmissions() }, [tab, loadSubmissions])
+
+  // ── Load Drip ─────────────────────────────────────────────────────────────────
+  const loadDrip = useCallback(() => {
+    const p = new URLSearchParams({ page: String(dripPage) })
+    if (dripFilter !== 'all') p.set('status', dripFilter)
+    fetch('/api/admin/drip?' + p)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          setDripCampaigns(d.data.campaigns)
+          setDripCounts(d.data.counts)
+          setDripPages(d.data.pagination.pages)
+        }
+      })
+  }, [dripPage, dripFilter])
+  useEffect(() => { if (tab === 'drip') loadDrip() }, [tab, loadDrip])
+
+  // ── Load GSA ──────────────────────────────────────────────────────────────────
+  const loadGSA = useCallback(() => {
+    fetch('/api/admin/gsa')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          setGsAccounts(d.data.accounts)
+          setNextQuotaReset(d.data.nextQuotaReset)
+        }
+      })
+  }, [])
+  useEffect(() => { if (tab === 'gsa') loadGSA() }, [tab, loadGSA])
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
@@ -325,6 +386,49 @@ function AdminPageInner() {
     else notify(data.error ?? 'Error', false)
   }
 
+  async function updateDrip(campaignId: string, updates: Record<string, unknown>) {
+    const res = await fetch('/api/admin/drip', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ campaignId, ...updates }) })
+    const data = await res.json()
+    if (data.success) { notify('Campaign updated'); loadDrip() }
+    else notify(data.error ?? 'Error', false)
+  }
+
+  async function addGSA() {
+    setGsaSaving(true)
+    const res = await fetch('/api/admin/gsa', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(gsaForm) })
+    const data = await res.json()
+    setGsaSaving(false)
+    if (data.success) {
+      notify('Account "' + gsaForm.label + '" added · Health: ' + (data.data.isHealthy ? '✓' : '✗'))
+      setShowAddGSA(false)
+      setGsaForm({ label: '', credentialsJson: '', dailyQuota: 200, priority: 0 })
+      loadGSA()
+    } else notify(data.error ?? 'Error', false)
+  }
+
+  async function updateGSA(id: string, updates: Record<string, unknown>) {
+    const res = await fetch('/api/admin/gsa', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...updates }) })
+    const data = await res.json()
+    if (data.success) {
+      setGsAccounts(prev => prev.map(a => a.id === id ? { ...a, ...data.data } : a))
+      notify('Account updated')
+    } else notify(data.error ?? 'Error', false)
+  }
+
+  async function runHealthCheck(id: string) {
+    setGsaHealthChecking(id)
+    await updateGSA(id, { runHealthCheck: true })
+    setGsaHealthChecking(null)
+  }
+
+  async function deleteGSA(id: string, label: string) {
+    if (!confirm('Delete account "' + label + '"? This cannot be undone.')) return
+    const res = await fetch('/api/admin/gsa?id=' + id, { method: 'DELETE' })
+    const data = await res.json()
+    if (data.success) { notify('Account deleted'); loadGSA() }
+    else notify(data.error ?? 'Error', false)
+  }
+
   if (loading) return <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading admin panel...</div>
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
@@ -366,7 +470,9 @@ function AdminPageInner() {
             color: tab === t ? 'var(--yellow)' : 'var(--text-muted)',
             borderBottom: tab === t ? '2px solid var(--yellow)' : '2px solid transparent',
             marginBottom: -1, textTransform: 'capitalize', transition: 'color 0.12s',
-          }}>{t}</button>
+          }}>
+            {t === 'drip' ? '⏱ drip' : t === 'gsa' ? '🔑 gsa' : t}
+          </button>
         ))}
       </div>
 
@@ -806,6 +912,206 @@ function AdminPageInner() {
               <button className="btn btn-ghost" style={{ padding: '6px 14px', fontSize: 12 }} disabled={subPage <= 1} onClick={() => setSubPage(p => p - 1)}>← Prev</button>
               <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: '36px' }}>{subPage} / {subPages}</span>
               <button className="btn btn-ghost" style={{ padding: '6px 14px', fontSize: 12 }} disabled={subPage >= subPages} onClick={() => setSubPage(p => p + 1)}>Next →</button>
+            </div>
+          )}
+        </div>
+      )}
+
+
+      {/* ── DRIP ADMIN ────────────────────────────────────────────────────────── */}
+      {tab === 'drip' && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 22 }}>
+            <StatCard label="Active" value={fmt(dripCounts.active)} color="var(--green)" />
+            <StatCard label="Paused" value={fmt(dripCounts.paused)} color="var(--yellow)" />
+            <StatCard label="Completed" value={fmt(dripCounts.completed)} color="var(--blue)" />
+            <StatCard label="Cancelled" value={fmt(dripCounts.cancelled)} color="var(--text-dim)" />
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            {['all', 'ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'].map(f => (
+              <button key={f} className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 11, background: dripFilter === f ? 'rgba(34,197,94,0.1)' : undefined, color: dripFilter === f ? 'var(--green)' : undefined }} onClick={() => { setDripFilter(f); setDripPage(1) }}>{f}</button>
+            ))}
+            <button className="btn btn-ghost" style={{ padding: '5px 12px', fontSize: 11 }} onClick={loadDrip}>↺</button>
+          </div>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr><Th>User</Th><Th>Campaign</Th><Th>Progress</Th><Th>Method</Th><Th>Pace</Th><Th>Status</Th><Th>Next Run</Th><Th>Actions</Th></tr></thead>
+              <tbody>
+                {dripCampaigns.map(c => {
+                  const pct = c.urlsTotal > 0 ? Math.round((c.urlsSubmitted / c.urlsTotal) * 100) : 0
+                  return (
+                    <tr key={c.id}>
+                      <Td style={{ color: 'var(--text-muted)', fontSize: 11, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.user.email}</Td>
+                      <Td style={{ maxWidth: 180 }}>
+                        <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>{c.urlsSubmitted}/{c.urlsTotal} URLs · {pct}%</div>
+                      </Td>
+                      <Td style={{ minWidth: 100 }}>
+                        <div style={{ background: 'var(--bg-elevated)', borderRadius: 3, height: 5, width: 100 }}>
+                          <div style={{ width: `${pct}%`, height: '100%', background: STATUS_COLOR[c.status] ?? 'var(--green)', borderRadius: 3, transition: 'width 0.3s' }} />
+                        </div>
+                      </Td>
+                      <Td><Badge label={c.method} color={METHOD_COLOR[c.method]} /></Td>
+                      <Td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.urlsPerDay}/day · {c.minDelayMin}–{c.maxDelayMin}min</Td>
+                      <Td><Badge label={c.status} color={STATUS_COLOR[c.status]} /></Td>
+                      <Td style={{ fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{c.nextRunAt ? fmtDateTime(c.nextRunAt) : '—'}</Td>
+                      <Td>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {c.status === 'ACTIVE' && <button className="btn btn-ghost" style={{ padding: '3px 8px', fontSize: 10 }} onClick={() => updateDrip(c.id, { status: 'PAUSED' })}>⏸</button>}
+                          {c.status === 'PAUSED' && <button className="btn btn-ghost" style={{ padding: '3px 8px', fontSize: 10 }} onClick={() => updateDrip(c.id, { status: 'ACTIVE' })}>▶</button>}
+                          {(c.status === 'ACTIVE' || c.status === 'PAUSED') && (
+                            <button className="btn btn-ghost" style={{ padding: '3px 8px', fontSize: 10, color: 'var(--red)' }} onClick={() => { if (confirm('Cancel and refund remaining credits?')) updateDrip(c.id, { status: 'CANCELLED' }) }}>✕</button>
+                          )}
+                        </div>
+                      </Td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {dripPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16 }}>
+              <button className="btn btn-ghost" style={{ padding: '6px 14px', fontSize: 12 }} disabled={dripPage <= 1} onClick={() => setDripPage(p => p - 1)}>← Prev</button>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: '36px' }}>{dripPage} / {dripPages}</span>
+              <button className="btn btn-ghost" style={{ padding: '6px 14px', fontSize: 12 }} disabled={dripPage >= dripPages} onClick={() => setDripPage(p => p + 1)}>Next →</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── GSA ADMIN ─────────────────────────────────────────────────────────── */}
+      {tab === 'gsa' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+              {gsAccounts.length} account{gsAccounts.length !== 1 ? 's' : ''} in pool
+              {nextQuotaReset && (
+                <span style={{ marginLeft: 12, color: 'var(--text-dim)', fontSize: 11 }}>
+                  Quota resets {new Date(nextQuotaReset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} PST
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-ghost" style={{ padding: '8px 14px', fontSize: 12 }} onClick={loadGSA}>↺ Refresh</button>
+              <button className="btn btn-primary" style={{ padding: '8px 16px', fontSize: 12 }} onClick={() => setShowAddGSA(true)}>+ Add Account</button>
+            </div>
+          </div>
+
+          {gsAccounts.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
+              <div style={{ fontSize: 28, marginBottom: 10 }}>🔑</div>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>No service accounts in pool</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>Add Google service account JSON credentials to enable multi-account quota management</div>
+              <button className="btn btn-primary" onClick={() => setShowAddGSA(true)}>Add First Account</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {gsAccounts.map((a, idx) => (
+                <div key={a.id} className="card" style={{ borderColor: !a.isActive ? 'var(--border)' : a.isHealthy ? (idx === 0 ? 'var(--border-glow)' : 'var(--border)') : 'rgba(248,81,73,0.3)', opacity: a.isActive ? 1 : 0.6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, flexWrap: 'wrap' }}>
+                        {idx === 0 && a.isActive && <span style={{ fontSize: 10, color: 'var(--green)', fontFamily: 'var(--font-mono)', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 4, padding: '1px 7px' }}>ACTIVE</span>}
+                        <span style={{ fontWeight: 700, fontSize: 14 }}>{a.label}</span>
+                        <Badge label={a.isHealthy ? '✓ Healthy' : '✗ Unhealthy'} color={a.isHealthy ? 'var(--green)' : 'var(--red)'} />
+                        <Badge label={a.isActive ? 'Enabled' : 'Disabled'} color={a.isActive ? 'var(--blue)' : 'var(--text-dim)'} />
+                        <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>Priority: {a.priority}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>{a.clientEmail}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 16, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 11 }} disabled={gsaHealthChecking === a.id} onClick={() => runHealthCheck(a.id)}>
+                        {gsaHealthChecking === a.id ? '...' : '🔍 Health Check'}
+                      </button>
+                      {idx !== 0 && a.isActive && (
+                        <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => updateGSA(a.id, { forceActive: true })}>↑ Force Primary</button>
+                      )}
+                      <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => updateGSA(a.id, { resetQuota: true })}>↺ Reset Quota</button>
+                      <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => updateGSA(a.id, { isActive: !a.isActive })}>{a.isActive ? 'Disable' : 'Enable'}</button>
+                      <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 11, color: 'var(--red)' }} onClick={() => deleteGSA(a.id, a.label)}>Delete</button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16, alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Daily Quota</div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-dim)', marginBottom: 3 }}>
+                          <span>{a.quotaUsed}/{a.dailyQuota}</span>
+                          <span>{a.dailyQuota > 0 ? Math.round((a.quotaUsed / a.dailyQuota) * 100) : 0}%</span>
+                        </div>
+                        <div style={{ background: 'var(--bg-elevated)', borderRadius: 3, height: 5 }}>
+                          <div style={{ width: `${a.dailyQuota > 0 ? Math.min(100, Math.round((a.quotaUsed / a.dailyQuota) * 100)) : 0}%`, height: '100%', background: a.quotaUsed / a.dailyQuota >= 0.9 ? 'var(--red)' : a.quotaUsed / a.dailyQuota >= 0.7 ? 'var(--yellow)' : 'var(--green)', borderRadius: 3 }} />
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11 }}>
+                      <div style={{ color: 'var(--text-dim)', marginBottom: 2, fontSize: 10, textTransform: 'uppercase' }}>Quota Resets</div>
+                      <div style={{ color: 'var(--text-muted)' }}>{a.quotaResetAt ? new Date(a.quotaResetAt).toLocaleString() : 'Unknown'}</div>
+                    </div>
+                    <div style={{ fontSize: 11 }}>
+                      <div style={{ color: 'var(--text-dim)', marginBottom: 2, fontSize: 10, textTransform: 'uppercase' }}>Last Used</div>
+                      <div style={{ color: 'var(--text-muted)' }}>{a.lastUsedAt ? fmtDateTime(a.lastUsedAt) : 'Never'}</div>
+                    </div>
+                    <div style={{ fontSize: 11 }}>
+                      <div style={{ color: 'var(--text-dim)', marginBottom: 2, fontSize: 10, textTransform: 'uppercase' }}>Health Check</div>
+                      <div style={{ color: 'var(--text-muted)' }}>{a.lastHealthCheck ? fmtDateTime(a.lastHealthCheck) : 'Never'}</div>
+                    </div>
+                    <div style={{ fontSize: 11 }}>
+                      <div style={{ color: 'var(--text-dim)', marginBottom: 2, fontSize: 10, textTransform: 'uppercase' }}>Priority</div>
+                      <input className="input" type="number" min={0} max={100} style={{ width: 70, padding: '4px 8px', fontSize: 11 }} defaultValue={a.priority}
+                        onBlur={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v !== a.priority) updateGSA(a.id, { priority: v }) }} />
+                    </div>
+                    <div style={{ fontSize: 11 }}>
+                      <div style={{ color: 'var(--text-dim)', marginBottom: 2, fontSize: 10, textTransform: 'uppercase' }}>Quota Limit</div>
+                      <input className="input" type="number" min={1} max={10000} style={{ width: 80, padding: '4px 8px', fontSize: 11 }} defaultValue={a.dailyQuota}
+                        onBlur={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v !== a.dailyQuota) updateGSA(a.id, { dailyQuota: v }) }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add GSA Modal */}
+          {showAddGSA && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 24 }}
+              onClick={e => { if (e.target === e.currentTarget) setShowAddGSA(false) }}>
+              <div className="card" style={{ width: '100%', maxWidth: 520 }}>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Add Service Account</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 20 }}>Paste the full JSON key file from Google Cloud Console.</div>
+                <div style={{ display: 'grid', gap: 14 }}>
+                  <div>
+                    <label className="label">Account Label</label>
+                    <input className="input" placeholder="e.g. Primary, Backup 1, Client Account" value={gsaForm.label} onChange={e => setGsaForm(f => ({ ...f, label: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="label">Service Account JSON</label>
+                    <textarea className="input" rows={8} style={{ resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 11 }}
+                      placeholder='{"type":"service_account","project_id":"...","client_email":"...@....iam.gserviceaccount.com","private_key":"-----BEGIN RSA PRIVATE KEY-----\n...",...}'
+                      value={gsaForm.credentialsJson} onChange={e => setGsaForm(f => ({ ...f, credentialsJson: e.target.value }))} />
+                    <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>Health check runs automatically on save.</div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                    <div>
+                      <label className="label">Daily Quota</label>
+                      <input className="input" type="number" min={1} max={10000} value={gsaForm.dailyQuota} onChange={e => setGsaForm(f => ({ ...f, dailyQuota: parseInt(e.target.value) || 200 }))} />
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>Google default is 200/day</div>
+                    </div>
+                    <div>
+                      <label className="label">Priority (0–100)</label>
+                      <input className="input" type="number" min={0} max={100} value={gsaForm.priority} onChange={e => setGsaForm(f => ({ ...f, priority: parseInt(e.target.value) || 0 }))} />
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>Higher = used first</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center', padding: '10px' }} disabled={gsaSaving || !gsaForm.label.trim() || !gsaForm.credentialsJson.trim()} onClick={addGSA}>
+                      {gsaSaving ? 'Verifying & Saving...' : 'Add Account'}
+                    </button>
+                    <button className="btn btn-ghost" style={{ padding: '10px 18px' }} onClick={() => setShowAddGSA(false)}>Cancel</button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
