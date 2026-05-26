@@ -1,45 +1,291 @@
-FROM node:20-alpine AS base
+npm warn config production Use `--omit=dev` instead.
+> indexr@1.0.0 build
+> prisma generate && next build
+Prisma schema loaded from prisma/schema.prisma
+Error: Prisma schema validation - (get-config wasm)
 
-# Install dependencies only when needed
-FROM base AS deps
-RUN apk add --no-cache libc6-compat openssl
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+Error code: P1012
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
 
-# Build the app
-FROM base AS builder
-RUN apk add --no-cache openssl libc6-compat
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npx prisma generate
-RUN npm run build
+  -->  prisma/schema.prisma:1
+   | 
+   | 
+ 1 | FROM node:20-alpine AS base
+ 2 | 
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
 
-# Production runner
-FROM base AS runner
-WORKDIR /app
-RUN apk add --no-cache openssl
+  -->  prisma/schema.prisma:3
+   | 
+ 2 | 
+ 3 | # Install dependencies only when needed
+ 4 | FROM base AS deps
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
 
-ENV NODE_ENV=production
+  -->  prisma/schema.prisma:4
+   | 
+ 3 | # Install dependencies only when needed
+ 4 | FROM base AS deps
+ 5 | RUN apk add --no-cache libc6-compat openssl
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+  -->  prisma/schema.prisma:5
+   | 
+ 4 | FROM base AS deps
+ 5 | RUN apk add --no-cache libc6-compat openssl
+ 6 | WORKDIR /app
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
 
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
+  -->  prisma/schema.prisma:6
+   | 
+ 5 | RUN apk add --no-cache libc6-compat openssl
+ 6 | WORKDIR /app
+ 7 | COPY package*.json ./
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
 
-USER nextjs
+  -->  prisma/schema.prisma:7
+   | 
+ 6 | WORKDIR /app
+ 7 | COPY package*.json ./
+ 8 | RUN npm ci
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
 
-EXPOSE 3000
+  -->  prisma/schema.prisma:8
+   | 
+ 7 | COPY package*.json ./
+ 8 | RUN npm ci
+ 9 | 
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
 
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
+  -->  prisma/schema.prisma:10
+   | 
+ 9 | 
+10 | # Build the app
+11 | FROM base AS builder
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
 
-CMD ["node", "server.js"]
+  -->  prisma/schema.prisma:11
+   | 
+10 | # Build the app
+11 | FROM base AS builder
+12 | RUN apk add --no-cache openssl libc6-compat
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:12
+   | 
+11 | FROM base AS builder
+12 | RUN apk add --no-cache openssl libc6-compat
+13 | WORKDIR /app
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:13
+   | 
+12 | RUN apk add --no-cache openssl libc6-compat
+13 | WORKDIR /app
+14 | COPY --from=deps node_modules ./node_modules
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:14
+   | 
+13 | WORKDIR /app
+14 | COPY --from=deps node_modules ./node_modules
+15 | COPY . .
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:15
+   | 
+14 | COPY --from=deps node_modules ./node_modules
+15 | COPY . .
+16 | RUN npx prisma generate
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:16
+   | 
+15 | COPY . .
+16 | RUN npx prisma generate
+17 | RUN npm run build
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:17
+   | 
+16 | RUN npx prisma generate
+17 | RUN npm run build
+18 | 
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:19
+   | 
+18 | 
+19 | # Production runner
+20 | FROM base AS runner
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:20
+   | 
+19 | # Production runner
+20 | FROM base AS runner
+21 | WORKDIR /app
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:21
+   | 
+20 | FROM base AS runner
+21 | WORKDIR /app
+22 | RUN apk add --no-cache openssl
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:22
+   | 
+21 | WORKDIR /app
+22 | RUN apk add --no-cache openssl
+23 | 
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:24
+   | 
+23 | 
+24 | ENV NODE_ENV=production
+25 | 
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:26
+   | 
+25 | 
+26 | RUN addgroup --system --gid 1001 nodejs
+27 | RUN adduser --system --uid 1001 nextjs
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:27
+   | 
+26 | RUN addgroup --system --gid 1001 nodejs
+27 | RUN adduser --system --uid 1001 nextjs
+28 | 
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:29
+   | 
+28 | 
+29 | COPY --from=builder public ./public
+30 | COPY --from=builder .next/standalone ./
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:30
+   | 
+29 | COPY --from=builder public ./public
+30 | COPY --from=builder .next/standalone ./
+31 | COPY --from=builder .next/static ./.next/static
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:31
+   | 
+30 | COPY --from=builder .next/standalone ./
+31 | COPY --from=builder .next/static ./.next/static
+32 | COPY --from=builder node_modules/.prisma ./node_modules/.prisma
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:32
+   | 
+31 | COPY --from=builder .next/static ./.next/static
+32 | COPY --from=builder node_modules/.prisma ./node_modules/.prisma
+33 | COPY --from=builder prisma ./prisma
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:33
+   | 
+32 | COPY --from=builder node_modules/.prisma ./node_modules/.prisma
+33 | COPY --from=builder prisma ./prisma
+34 | COPY --from=builder scripts ./scripts
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:34
+   | 
+33 | COPY --from=builder prisma ./prisma
+34 | COPY --from=builder scripts ./scripts
+35 | COPY --from=builder node_modules ./node_modules
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:35
+   | 
+34 | COPY --from=builder scripts ./scripts
+35 | COPY --from=builder node_modules ./node_modules
+36 | COPY --from=builder package.json ./package.json
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:36
+   | 
+35 | COPY --from=builder node_modules ./node_modules
+36 | COPY --from=builder package.json ./package.json
+37 | 
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:38
+   | 
+37 | 
+38 | USER nextjs
+39 | 
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:40
+   | 
+39 | 
+40 | EXPOSE 3000
+41 | 
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:42
+   | 
+41 | 
+42 | ENV PORT=3000
+43 | ENV HOSTNAME="0.0.0.0"
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:43
+   | 
+42 | ENV PORT=3000
+43 | ENV HOSTNAME="0.0.0.0"
+44 | 
+   | 
+error: Error validating: This line is invalid. It does not start with any known Prisma schema keyword.
+
+  -->  prisma/schema.prisma:45
+   | 
+44 | 
+45 | CMD ["node", "server.js"]
+46 | 
+   | 
+Validation Error Count: 35
+[Context: getConfig]
+Prisma CLI Version : 5.22.0
+Build Failed: build daemon returned an error < failed to solve: process "npm run build" did not complete successfully: exit code: 1 >
