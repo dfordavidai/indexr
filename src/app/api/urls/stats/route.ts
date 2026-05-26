@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   }
 
   const counts = Object.fromEntries(
-    statusCounts.map(s => [s.status, s._count])
+    statusCounts.map((s: { status: string; _count: number }) => [s.status, s._count])
   ) as Record<string, number>
 
   return NextResponse.json({
