@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
       totalSubmissions,
       submissionsToday,
       statusBreakdown: Object.fromEntries(
-        statusBreakdown.map(s => [s.status, s._count])
+        statusBreakdown.map((s: { status: string; _count: number }) => [s.status, s._count])
       ),
       recentSubmissions,
     },
