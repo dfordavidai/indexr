@@ -82,4 +82,35 @@ model ApiKey {
 
 model CreditLog {
   id           String   @id @default(cuid())
-  userId
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  delta        Int
+  reason       String
+  referenceId  String?
+  balanceAfter Int
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum IndexStatus {
+  PENDING
+  QUEUED
+  SUBMITTED
+  CRAWLED
+  INDEXED
+  FAILED
+  SKIPPED
+}
+
+enum IndexMethod {
+  GOOGLE_API
+  SITEMAP_PING
+  FETCH_AS_GOOGLE
+  INDEXNOW
+}
