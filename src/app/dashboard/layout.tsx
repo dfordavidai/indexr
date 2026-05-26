@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/dashboard', label: 'Overview', icon: '◉' },
   { href: '/dashboard/submit', label: 'Submit URLs', icon: '⊕' },
   { href: '/dashboard/submissions', label: 'Submissions', icon: '≡' },
+  { href: '/dashboard/drip', label: 'Drip Campaigns', icon: '⏱' },
   { href: '/dashboard/api-keys', label: 'API Keys', icon: '⌗' },
   { href: '/dashboard/settings', label: 'Settings', icon: '⚙' },
 ]
