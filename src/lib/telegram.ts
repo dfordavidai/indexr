@@ -150,7 +150,7 @@ function setupBotHandlers(bot: TelegramBot) {
       return
     }
 
-    const lines = recent.map(s => {
+    const lines = recent.map((s: { status: string; url: string }) => {
       const statusEmoji = {
         PENDING: '⏳', QUEUED: '🔄', SUBMITTED: '📤',
         CRAWLED: '🕷️', INDEXED: '✅', FAILED: '❌', SKIPPED: '⏭️',
