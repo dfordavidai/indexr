@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
     },
     select: { url: true },
   })
-  const existingSet = new Set(existingUrls.map(s => s.url))
+  const existingSet = new Set(existingUrls.map((s: { url: string }) => s.url))
 
   const newUrls = validUrls.filter(u => !existingSet.has(u))
   const duplicates = validUrls.filter(u => existingSet.has(u))
@@ -151,10 +151,10 @@ export async function POST(req: NextRequest) {
 
     // Enqueue all
     await Promise.all(
-      submissions.map(s => enqueueUrl(s.id, s.url, user.id, method))
+      submissions.map((s: { id: string; url: string }) => enqueueUrl(s.id, s.url, user.id, method))
     )
 
-    for (const s of submissions) {
+    for (const s of submissions as { url: string; id: string }[]) {
       results.push({ url: s.url, status: 'queued', submissionId: s.id })
     }
   }
