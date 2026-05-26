@@ -185,7 +185,7 @@ export default function DripPage() {
 
   const urlCount = parseUrls(form.urlText).length
 
-  if (loading) return <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading...</div>
+  if (loading) return (<div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading...</div>)
 
   return (
     <div>
@@ -365,7 +365,7 @@ export default function DripPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
                 <div>
                   <label className="label">URLs per day</label>
-                  <input className="input" type="number" min={1} max={500} value={form.urlsPerDay} onChange={e => setForm(f => ({ ...f, urlsPerDay: parseInt(e.target.value) || 50 })} />
+                  <input className="input" type="number" min={1} max={500} value={form.urlsPerDay} onChange={e => setForm(f => ({ ...f, urlsPerDay: parseInt(e.target.value) || 50 }))} />
                 </div>
                 <div>
                   <label className="label">Min delay (min)</label>
