@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     success: true,
     data: {
-      users: users.map(u => ({
+      users: users.map((u: typeof users[number]) => ({
         id: u.id,
         email: u.email,
         name: u.name,
