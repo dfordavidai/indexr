@@ -1,35 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionFromRequest } from '@/lib/auth'
+import { engineConfig } from '@/lib/engine-config'
 import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
-
-// In-memory engine config (in production: persist to DB or Redis)
-// These would be stored in a SystemConfig table or Redis KV
-export const engineConfig = {
-  indexingMode: 'normal' as 'instant' | 'normal', // instant = process immediately, normal = queue
-  enabledMethods: {
-    GOOGLE_API: true,
-    INDEXNOW: true,
-    SITEMAP_PING: true,
-    FETCH_AS_GOOGLE: false,
-  },
-  rateLimits: {
-    GOOGLE_API: 200,     // per day
-    INDEXNOW: 10000,     // per day
-    SITEMAP_PING: 500,   // per day
-  },
-  defaultMethodByPlan: {
-    free: 'INDEXNOW',
-    pro: 'GOOGLE_API',
-    enterprise: 'GOOGLE_API',
-  },
-  retryAttempts: 3,
-  retryDelaySeconds: 300,
-  creditCostPerUrl: 1,
-  blacklistedDomains: [] as string[],
-  instantModeMaxUrls: 50, // max URLs per request in instant mode
-}
 
 async function requireAdmin(req: NextRequest) {
   const session = await getSessionFromRequest(req)
@@ -78,7 +52,6 @@ export async function PATCH(req: NextRequest) {
   const parsed = schema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ success: false, error: parsed.error.issues[0].message }, { status: 400 })
 
-  // Apply updates
   const updates = parsed.data
   if (updates.indexingMode) engineConfig.indexingMode = updates.indexingMode
   if (updates.enabledMethods) Object.assign(engineConfig.enabledMethods, updates.enabledMethods)
