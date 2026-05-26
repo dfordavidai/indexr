@@ -9,23 +9,24 @@ datasource db {
 }
 
 model User {
-  id                   String       @id @default(cuid())
-  email                String       @unique
+  id                   String         @id @default(cuid())
+  email                String         @unique
   passwordHash         String
   name                 String?
-  role                 Role         @default(USER)
-  credits              Int          @default(0)
+  role                 Role           @default(USER)
+  credits              Int            @default(0)
   planId               String?
-  plan                 Plan?        @relation(fields: [planId], references: [id])
-  stripeCustomerId     String?      @unique
-  stripeSubscriptionId String?      @unique
+  plan                 Plan?          @relation(fields: [planId], references: [id])
+  stripeCustomerId     String?        @unique
+  stripeSubscriptionId String?        @unique
   telegramChatId       String?
-  emailVerified        Boolean      @default(false)
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  emailVerified        Boolean        @default(false)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
   submissions          Submission[]
   apiKeys              ApiKey[]
   creditLogs           CreditLog[]
+  dripCampaigns        DripCampaign[]
 
   @@index([email])
 }
@@ -44,24 +45,27 @@ model Plan {
 }
 
 model Submission {
-  id            String      @id @default(cuid())
+  id            String       @id @default(cuid())
   userId        String
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   url           String
-  status        IndexStatus @default(PENDING)
-  method        IndexMethod @default(GOOGLE_API)
+  status        IndexStatus  @default(PENDING)
+  method        IndexMethod  @default(GOOGLE_API)
   googleJobId   String?
   indexedAt     DateTime?
   lastCheckedAt DateTime?
   errorMessage  String?
-  creditsCost   Int         @default(1)
-  source        String      @default("dashboard")
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  creditsCost   Int          @default(1)
+  source        String       @default("dashboard")
+  dripCampaignId String?
+  dripCampaign  DripCampaign? @relation(fields: [dripCampaignId], references: [id])
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  @@index([dripCampaignId])
 }
 
 model ApiKey {
@@ -93,6 +97,58 @@ model CreditLog {
   @@index([userId])
 }
 
+// ── Drip Campaign ─────────────────────────────────────────────────────────────
+
+model DripCampaign {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  status         DripStatus     @default(ACTIVE)
+  method         IndexMethod    @default(GOOGLE_API)
+  urls           String[]       // full list of URLs in the campaign
+  urlsSubmitted  Int            @default(0)
+  urlsTotal      Int
+  urlsPerDay     Int            @default(50)
+  minDelayMin    Int            @default(5)   // min minutes between submissions
+  maxDelayMin    Int            @default(60)  // max minutes between submissions
+  smartDrip      Boolean        @default(true) // randomize within window
+  windowStartHour Int           @default(9)   // smart drip window start (user local hour)
+  windowEndHour  Int            @default(17)  // smart drip window end
+  userTimezone   String         @default("UTC")
+  creditsReserved Int           @default(0)
+  nextRunAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  submissions    Submission[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([nextRunAt])
+}
+
+// ── Google Service Account ────────────────────────────────────────────────────
+
+model GoogleServiceAccount {
+  id              String    @id @default(cuid())
+  label           String
+  credentialsJson String    // encrypted JSON blob of service account key
+  clientEmail     String
+  isActive        Boolean   @default(true)
+  isHealthy       Boolean   @default(true)
+  dailyQuota      Int       @default(200)
+  quotaUsed       Int       @default(0)
+  quotaResetAt    DateTime?
+  lastHealthCheck DateTime?
+  lastUsedAt      DateTime?
+  priority        Int       @default(0) // higher = tried first
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([isActive, isHealthy, quotaUsed])
+}
+
 enum Role {
   USER
   ADMIN
@@ -113,4 +169,11 @@ enum IndexMethod {
   SITEMAP_PING
   FETCH_AS_GOOGLE
   INDEXNOW
+}
+
+enum DripStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  COMPLETED
 }
