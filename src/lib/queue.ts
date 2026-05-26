@@ -25,6 +25,14 @@ export const statusCheckQueue = new Bull('status-check', REDIS_URL, {
   },
 })
 
+export const dripQueue = new Bull('drip-scheduler', REDIS_URL, {
+  defaultJobOptions: {
+    attempts: 2,
+    removeOnComplete: true,
+    removeOnFail: 20,
+  },
+})
+
 export interface IndexingJob {
   submissionId: string
   url: string
@@ -32,7 +40,12 @@ export interface IndexingJob {
   method: string
 }
 
-// Process indexing jobs
+export interface DripJob {
+  campaignId: string
+}
+
+// ── Indexing processor ────────────────────────────────────────────────────────
+
 indexingQueue.process(5, async job => {
   const { submissionId, url, userId, method } = job.data as IndexingJob
 
@@ -48,7 +61,6 @@ indexingQueue.process(5, async job => {
     if (method === 'GOOGLE_API') {
       const result = await submitUrlToGoogleIndexingApi(url)
       if (result.error) {
-        // Fallback to IndexNow
         success = await submitViaIndexNow(url)
         if (!success) errorMessage = result.error
       } else {
@@ -75,7 +87,6 @@ indexingQueue.process(5, async job => {
   })
 
   if (success) {
-    // Notify via Telegram if user has it connected
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { telegramChatId: true },
@@ -87,7 +98,6 @@ indexingQueue.process(5, async job => {
       )
     }
 
-    // Schedule status check in 24 hours
     await statusCheckQueue.add(
       { submissionId, url, userId },
       { delay: 24 * 60 * 60 * 1000 }
@@ -97,22 +107,18 @@ indexingQueue.process(5, async job => {
   return { success, submissionId, url }
 })
 
-// Process status check jobs — confirm if actually indexed
+// ── Status check processor ────────────────────────────────────────────────────
+
 statusCheckQueue.process(3, async job => {
   const { submissionId, url, userId } = job.data
 
   try {
-    // Check via Google search for site: query
     const indexed = await checkIfIndexed(url)
 
     if (indexed) {
       await prisma.submission.update({
         where: { id: submissionId },
-        data: {
-          status: 'INDEXED',
-          indexedAt: new Date(),
-          lastCheckedAt: new Date(),
-        },
+        data: { status: 'INDEXED', indexedAt: new Date(), lastCheckedAt: new Date() },
       })
 
       const user = await prisma.user.findUnique({
@@ -136,9 +142,117 @@ statusCheckQueue.process(3, async job => {
   }
 })
 
+// ── Drip processor ────────────────────────────────────────────────────────────
+
+dripQueue.process(2, async job => {
+  const { campaignId } = job.data as DripJob
+
+  const campaign = await prisma.dripCampaign.findUnique({
+    where: { id: campaignId },
+    // Note: no user include needed in drip processor - credits are already reserved upfront
+  })
+
+  if (!campaign || campaign.status !== 'ACTIVE') return { skipped: true }
+
+  // Check if user still has reserved credits
+  if (campaign.creditsReserved <= 0) {
+    await prisma.dripCampaign.update({
+      where: { id: campaignId },
+      data: { status: 'CANCELLED' },
+    })
+    return { cancelled: true, reason: 'no_credits_reserved' }
+  }
+
+  // Pick next batch of URLs to submit today
+  const submitted = campaign.urlsSubmitted
+  const remaining = campaign.urls.slice(submitted)
+
+  if (remaining.length === 0) {
+    await prisma.dripCampaign.update({
+      where: { id: campaignId },
+      data: { status: 'COMPLETED', completedAt: new Date() },
+    })
+    return { completed: true }
+  }
+
+  // Submit up to urlsPerDay but respect smart drip (1 URL per job tick)
+  const urlToSubmit = remaining[0]
+
+  const submission = await prisma.submission.create({
+    data: {
+      userId: campaign.userId,
+      url: urlToSubmit,
+      status: 'PENDING',
+      method: campaign.method,
+      creditsCost: 1,
+      source: 'drip',
+      dripCampaignId: campaignId,
+    },
+  })
+
+  // Decrement reserved credits (already deducted from user at campaign creation)
+  await prisma.dripCampaign.update({
+    where: { id: campaignId },
+    data: {
+      urlsSubmitted: { increment: 1 },
+      creditsReserved: { decrement: 1 },
+    },
+  })
+
+  await enqueueUrl(submission.id, urlToSubmit, campaign.userId, campaign.method)
+
+  // Schedule next drip tick
+  const newSubmitted = submitted + 1
+  const totalUrls = campaign.urls.length
+  const nextCampaignState = await prisma.dripCampaign.findUnique({ where: { id: campaignId } })
+
+  if (newSubmitted < totalUrls && nextCampaignState?.status === 'ACTIVE') {
+    const delayMs = computeDripDelay(campaign)
+    const nextRunAt = new Date(Date.now() + delayMs)
+
+    await prisma.dripCampaign.update({
+      where: { id: campaignId },
+      data: { nextRunAt },
+    })
+
+    await dripQueue.add({ campaignId }, { delay: delayMs })
+  } else if (newSubmitted >= totalUrls) {
+    await prisma.dripCampaign.update({
+      where: { id: campaignId },
+      data: { status: 'COMPLETED', completedAt: new Date() },
+    })
+  }
+
+  return { submitted: urlToSubmit, submissionId: submission.id }
+})
+
+function computeDripDelay(campaign: {
+  smartDrip: boolean
+  minDelayMin: number
+  maxDelayMin: number
+  windowStartHour: number
+  windowEndHour: number
+  userTimezone: string
+  urlsPerDay: number
+}): number {
+  const { minDelayMin, maxDelayMin, smartDrip, windowStartHour, windowEndHour, urlsPerDay } = campaign
+
+  if (smartDrip) {
+    // Calculate how many minutes are in the window
+    const windowMinutes = (windowEndHour - windowStartHour) * 60
+    // Spread urlsPerDay evenly across the window with jitter
+    const baseInterval = Math.max(minDelayMin, Math.floor(windowMinutes / urlsPerDay))
+    const jitter = Math.floor(Math.random() * (maxDelayMin - minDelayMin + 1))
+    const delayMin = Math.min(baseInterval + jitter, maxDelayMin)
+    return delayMin * 60 * 1000
+  }
+
+  // Random between min and max
+  const delayMin = minDelayMin + Math.floor(Math.random() * (maxDelayMin - minDelayMin + 1))
+  return delayMin * 60 * 1000
+}
+
 async function checkIfIndexed(url: string): Promise<boolean> {
-  // Use a headless request to check site: operator result
-  // In production, integrate with GSC API or use a SERP API
   try {
     const query = `site:${url}`
     const res = await fetch(
@@ -164,4 +278,8 @@ export async function enqueueUrl(
     where: { id: submissionId },
     data: { status: 'QUEUED' },
   })
+}
+
+export async function scheduleDripCampaign(campaignId: string, initialDelayMs = 0) {
+  await dripQueue.add({ campaignId }, { delay: initialDelayMs })
 }
