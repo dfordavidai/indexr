@@ -44,6 +44,29 @@ export interface DripJob {
   campaignId: string
 }
 
+// ── Webhook: fires to your Namecheap link directory after each successful submission ──
+
+async function notifyLinkPage(url: string): Promise<void> {
+  const webhookUrl    = process.env.LINK_PAGE_WEBHOOK_URL    // https://yourdomain.com/receive-link.php
+  const webhookSecret = process.env.LINK_PAGE_WEBHOOK_SECRET // must match WEBHOOK_SECRET in receive-link.php
+
+  if (!webhookUrl || !webhookSecret) return
+
+  try {
+    await fetch(webhookUrl, {
+      method:  'POST',
+      headers: {
+        'Content-Type':      'application/json',
+        'X-Webhook-Secret':  webhookSecret,
+      },
+      body: JSON.stringify({ url }),
+      signal: AbortSignal.timeout(8000),
+    })
+  } catch {
+    // Non-fatal — don't block the indexing job if the link page is unreachable
+  }
+}
+
 // ── Indexing processor ────────────────────────────────────────────────────────
 
 indexingQueue.process(5, async job => {
@@ -87,6 +110,9 @@ indexingQueue.process(5, async job => {
   })
 
   if (success) {
+    // ── Fire webhook to Namecheap link directory ──
+    await notifyLinkPage(url)
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { telegramChatId: true },
@@ -149,12 +175,10 @@ dripQueue.process(2, async job => {
 
   const campaign = await prisma.dripCampaign.findUnique({
     where: { id: campaignId },
-    // Note: no user include needed in drip processor - credits are already reserved upfront
   })
 
   if (!campaign || campaign.status !== 'ACTIVE') return { skipped: true }
 
-  // Check if user still has reserved credits
   if (campaign.creditsReserved <= 0) {
     await prisma.dripCampaign.update({
       where: { id: campaignId },
@@ -163,7 +187,6 @@ dripQueue.process(2, async job => {
     return { cancelled: true, reason: 'no_credits_reserved' }
   }
 
-  // Pick next batch of URLs to submit today
   const submitted = campaign.urlsSubmitted
   const remaining = campaign.urls.slice(submitted)
 
@@ -175,7 +198,6 @@ dripQueue.process(2, async job => {
     return { completed: true }
   }
 
-  // Submit up to urlsPerDay but respect smart drip (1 URL per job tick)
   const urlToSubmit = remaining[0]
 
   const submission = await prisma.submission.create({
@@ -190,7 +212,6 @@ dripQueue.process(2, async job => {
     },
   })
 
-  // Decrement reserved credits (already deducted from user at campaign creation)
   await prisma.dripCampaign.update({
     where: { id: campaignId },
     data: {
@@ -201,7 +222,6 @@ dripQueue.process(2, async job => {
 
   await enqueueUrl(submission.id, urlToSubmit, campaign.userId, campaign.method)
 
-  // Schedule next drip tick
   const newSubmitted = submitted + 1
   const totalUrls = campaign.urls.length
   const nextCampaignState = await prisma.dripCampaign.findUnique({ where: { id: campaignId } })
@@ -238,16 +258,13 @@ function computeDripDelay(campaign: {
   const { minDelayMin, maxDelayMin, smartDrip, windowStartHour, windowEndHour, urlsPerDay } = campaign
 
   if (smartDrip) {
-    // Calculate how many minutes are in the window
     const windowMinutes = (windowEndHour - windowStartHour) * 60
-    // Spread urlsPerDay evenly across the window with jitter
     const baseInterval = Math.max(minDelayMin, Math.floor(windowMinutes / urlsPerDay))
     const jitter = Math.floor(Math.random() * (maxDelayMin - minDelayMin + 1))
     const delayMin = Math.min(baseInterval + jitter, maxDelayMin)
     return delayMin * 60 * 1000
   }
 
-  // Random between min and max
   const delayMin = minDelayMin + Math.floor(Math.random() * (maxDelayMin - minDelayMin + 1))
   return delayMin * 60 * 1000
 }
