@@ -179,19 +179,56 @@ export async function submitViaIndexNow(url: string): Promise<boolean> {
   const key = process.env.INDEXNOW_API_KEY
   if (!key) return false
 
+  // IndexNow key ownership is tied to SHORT_DOMAIN — the domain where
+  // the key file lives (e.g. flexygist.com.ng/63cce7389f...txt).
+  // The 'host' field MUST match that domain, not the destination URL's domain.
+  // Submitting with host=someexternalsite.com causes a 403 — Bing can't verify
+  // the key file on a domain you don't control.
+  const shortDomain = process.env.SHORT_DOMAIN
+  if (!shortDomain) {
+    // Fallback: use the submitted URL's host (only works if it IS your domain)
+    const urlHost = new URL(url).hostname
+    const urlOrigin = new URL(url).origin
+    try {
+      const res = await fetch('https://api.indexnow.org/indexnow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host: urlHost,
+          key,
+          keyLocation: `${urlOrigin}/${key}.txt`,
+          urlList: [url],
+        }),
+      })
+      return res.status === 200 || res.status === 202
+    } catch {
+      return false
+    }
+  }
+
+  const shortOrigin = shortDomain.replace(/\/$/, '')
+  const shortHost   = new URL(shortOrigin).hostname
+
   try {
     const res = await fetch('https://api.indexnow.org/indexnow', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        host: new URL(url).hostname,
+        host:        shortHost,
         key,
-        keyLocation: `${new URL(url).origin}/${key}.txt`,
-        urlList: [url],
+        keyLocation: `${shortOrigin}/${key}.txt`,
+        urlList:     [url],
       }),
     })
-    return res.status === 200 || res.status === 202
-  } catch {
+
+    if (res.status !== 200 && res.status !== 202) {
+      console.error(`[IndexNow] Failed for ${url} — HTTP ${res.status}`)
+      return false
+    }
+
+    return true
+  } catch (err) {
+    console.error(`[IndexNow] Error for ${url}:`, err)
     return false
   }
 }
