@@ -26,14 +26,12 @@ export default function SubmitPage() {
   const [urlText,     setUrlText]     = useState('')
   const [method,      setMethod]      = useState('GOOGLE_API')
   const [generalMode, setGeneralMode] = useState(true)   // default ON for all users
-  const [isAdmin,     setIsAdmin]     = useState(false)  // only admins can toggle
+  const [isAdmin,     setIsAdmin]     = useState(false)  // only admins see the toggle
   const [loading,     setLoading]     = useState(false)
   const [result,      setResult]      = useState<SubmitResponse | null>(null)
   const [error,       setError]       = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Fetch role once on mount — no extra request, layout already called this
-  // but we need it here too to control the toggle visibility
   useEffect(() => {
     fetch('/api/auth/me')
       .then(r => r.json())
@@ -134,8 +132,8 @@ export default function SubmitPage() {
             style={{
               padding: '9px 22px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
               border: 'none', outline: 'none',
-              background: generalMode  ? 'var(--green)'     : 'var(--bg-elevated)',
-              color:      generalMode  ? '#000'              : 'var(--text-muted)',
+              background:  generalMode ? 'var(--green)'     : 'var(--bg-elevated)',
+              color:        generalMode ? '#000'              : 'var(--text-muted)',
               transition: 'all 0.15s',
             }}>
             General Submit
@@ -151,21 +149,6 @@ export default function SubmitPage() {
             }}>
             GSC Submit
           </button>
-        </div>
-      )}
-
-      {/* General mode banner — always shown to regular users, shown when active for admin */}
-      {generalMode && (
-        <div style={{
-          background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.3)',
-          borderRadius: 8, padding: '12px 16px', marginBottom: 20,
-          fontSize: 13, color: '#c4b5fd', lineHeight: 1.7,
-        }}>
-          <strong style={{ color: '#a78bfa' }}>⚡ General Submit — No GSC ownership required.</strong>
-          <br />
-          Each URL is automatically shortlinked on your domain, then the shortlink is submitted
-          to Google &amp; IndexNow. Google follows the 301 → indexes the destination.
-          Works for any URL: backlinks, client sites, third-party pages.
         </div>
       )}
 
@@ -201,11 +184,7 @@ export default function SubmitPage() {
               className="input"
               value={urlText}
               onChange={e => setUrlText(e.target.value)}
-              placeholder={
-                generalMode
-                  ? `https://backlink-site.com/your-page\nhttps://client-website.com/blog\nhttps://pastelink.net/gbvw7ok0`
-                  : `https://example.com/page-1\nhttps://example.com/page-2`
-              }
+              placeholder={`https://example.com/page-1\nhttps://example.com/page-2\nhttps://another-site.com/backlink`}
               style={{ minHeight: 280, resize: 'vertical', lineHeight: 1.6 }}
             />
           </div>
@@ -247,9 +226,7 @@ export default function SubmitPage() {
                 </div>
               </div>
               <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                {generalMode
-                  ? '⚡ Shortlinks created & submitted to Google + IndexNow. Check Submissions for status.'
-                  : '✓ URLs are queued for indexing. Check status in Submissions.'}
+                ✓ URLs are queued for indexing. Check status in Submissions.
               </p>
             </div>
           )}
@@ -261,7 +238,7 @@ export default function SubmitPage() {
             style={{ padding: '13px', fontSize: 15, justifyContent: 'center' }}>
             {loading
               ? 'Submitting...'
-              : `${generalMode ? '⚡ General Submit' : 'Submit'} ${urlCount > 0 ? urlCount + ' URL' + (urlCount !== 1 ? 's' : '') : 'URLs'} →`}
+              : `Submit ${urlCount > 0 ? urlCount + ' URL' + (urlCount !== 1 ? 's' : '') : 'URLs'} →`}
           </button>
         </div>
 
@@ -299,32 +276,12 @@ export default function SubmitPage() {
             </div>
           )}
 
-          {/* How it works — general mode */}
-          {generalMode && (
-            <div className="card" style={{ border: '1px solid rgba(168,85,247,0.25)' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#a78bfa', marginBottom: 10 }}>
-                How General Submit works
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 2 }}>
-                <div>1. URL received by queue</div>
-                <div>2. 5-char shortcode generated</div>
-                <div>3. Shortlink saved to your PHP server</div>
-                <div>4. Shortlink submitted to Google API</div>
-                <div>5. Shortlink pinged via IndexNow</div>
-                <div>6. Sitemap re-pinged to Google</div>
-                <div>7. Google crawls shortlink → 301 → destination</div>
-              </div>
-            </div>
-          )}
-
           {/* Tips */}
           <div className="card" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.8 }}>
               <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Tips</div>
               <div>• One URL per line</div>
-              {generalMode
-                ? <div>• HTTP and HTTPS accepted</div>
-                : <div>• HTTPS URLs only</div>}
+              <div>• HTTP and HTTPS accepted</div>
               <div>• Max 500 per batch</div>
               <div>• 1 credit per URL</div>
               <div>• Duplicates are skipped</div>
