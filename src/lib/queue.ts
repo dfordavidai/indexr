@@ -44,6 +44,27 @@ export interface DripJob {
   campaignId: string
 }
 
+// ── Random 5-letter word title generator ─────────────────────────────────────
+
+/**
+ * Generates a pronounceable 5-letter word (CVCVC pattern) to use as a
+ * human-readable title in place of the raw URL on the link directory page.
+ * e.g. "bozit", "ralex", "kimon"
+ */
+function generateWordTitle(): string {
+  const consonants = 'bcdfghjklmnpqrstvwxyz'
+  const vowels     = 'aeiou'
+  const pattern    = ['c', 'v', 'c', 'v', 'c'] as const
+
+  return pattern
+    .map(type =>
+      type === 'c'
+        ? consonants[Math.floor(Math.random() * consonants.length)]
+        : vowels[Math.floor(Math.random() * vowels.length)]
+    )
+    .join('')
+}
+
 // ── Webhook: fires to your Namecheap link directory after each successful submission ──
 
 async function notifyLinkPage(url: string): Promise<void> {
@@ -52,6 +73,8 @@ async function notifyLinkPage(url: string): Promise<void> {
 
   if (!webhookUrl || !webhookSecret) return
 
+  const title = generateWordTitle()
+
   try {
     await fetch(webhookUrl, {
       method:  'POST',
@@ -59,7 +82,7 @@ async function notifyLinkPage(url: string): Promise<void> {
         'Content-Type':      'application/json',
         'X-Webhook-Secret':  webhookSecret,
       },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, title }),
       signal: AbortSignal.timeout(8000),
     })
   } catch {
