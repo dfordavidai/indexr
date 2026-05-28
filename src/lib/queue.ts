@@ -40,6 +40,8 @@ export interface IndexingJob {
   method: string
   /** If true, skip GSC ownership check — submit via shortlink on your domain instead */
   generalMode?: boolean
+  /** If true, skip shortlink creation entirely (used by GSC Submit) */
+  noShorten?: boolean
 }
 
 export interface DripJob {
@@ -187,7 +189,7 @@ async function postToXenForo(
 // ── Indexing processor ────────────────────────────────────────────────────────
 
 indexingQueue.process(5, async job => {
-  const { submissionId, url, userId, method, generalMode = false } = job.data as IndexingJob
+  const { submissionId, url, userId, method, generalMode = false, noShorten = false } = job.data as IndexingJob
 
   await prisma.submission.update({
     where: { id: submissionId },
@@ -233,20 +235,22 @@ indexingQueue.process(5, async job => {
   })
 
   if (success) {
-    // ── Create shortlink + fire webhook → receive-link.php stores it ─────────
-    const shortcode        = generateShortcode()
-    const title            = generateWordTitle()
-    const { shortUrl }     = await notifyLinkPage(url, shortcode)
+    // ── Shortlink: skip entirely when noShorten=true (GSC Submit path) ───────
+    let shortUrl: string | null = null
+    const title = generateWordTitle()
 
-    // ── Post to XenForo ───────────────────────────────────────────────────────
-    await postToXenForo(url, title, shortUrl)
+    if (!noShorten) {
+      const shortcode    = generateShortcode()
+      const linkResult   = await notifyLinkPage(url, shortcode)
+      shortUrl           = linkResult.shortUrl
 
-    // ── Submit shortlink to Google Indexing API + IndexNow + sitemap ping ────
-    // This fires for ALL submissions (GSC mode AND general mode).
-    // In GSC mode: both the original URL AND the shortlink get submitted.
-    // In general mode: only the shortlink gets submitted (the 301 does the rest).
-    if (shortUrl) {
-      await submitShortlinkToSearchEngines(shortUrl)
+      // ── Post to XenForo ─────────────────────────────────────────────────────
+      await postToXenForo(url, title, shortUrl)
+
+      // ── Submit shortlink to search engines ──────────────────────────────────
+      if (shortUrl) {
+        await submitShortlinkToSearchEngines(shortUrl)
+      }
     }
 
     // ── Telegram notification ─────────────────────────────────────────────────
@@ -428,9 +432,10 @@ export async function enqueueUrl(
   url:          string,
   userId:       string,
   method      = 'GOOGLE_API',
-  generalMode = false
+  generalMode = false,
+  noShorten   = false
 ) {
-  await indexingQueue.add({ submissionId, url, userId, method, generalMode })
+  await indexingQueue.add({ submissionId, url, userId, method, generalMode, noShorten })
   await prisma.submission.update({
     where: { id: submissionId },
     data:  { status: 'QUEUED' },
