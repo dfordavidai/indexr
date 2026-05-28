@@ -138,6 +138,52 @@ async function notifyLinkPage(
   return { shortUrl }
 }
 
+
+// ── XenForo: create a new thread for every submitted URL ─────────────────────
+//
+// Env vars required:
+//   XENFORO_BASE_URL    = https://latestupdates.infinityfreeapp.com
+//   XENFORO_API_KEY     = your XenForo API key (Admin → API Keys)
+//   XENFORO_NODE_ID     = forum node ID where threads will be posted (number)
+//
+// Optional:
+//   XENFORO_STICKY      = "true" to pin every thread (shows in header area)
+
+async function postToXenForo(
+  url: string,
+  title: string,
+  shortUrl: string | null
+): Promise<void> {
+  const baseUrl = process.env.XENFORO_BASE_URL
+  const apiKey  = process.env.XENFORO_API_KEY
+  const nodeId  = process.env.XENFORO_NODE_ID
+  if (!baseUrl || !apiKey || !nodeId) return
+
+  const sticky    = process.env.XENFORO_STICKY === 'true' ? 1 : 0
+  const shortLine = shortUrl ? `\n\n🔗 Short URL: ${shortUrl}` : ''
+  const message   = `📌 New URL submitted for indexing:\n\n${url}${shortLine}\n\n[Submitted via Indexr]`
+
+  try {
+    await fetch(`${baseUrl.replace(/\/$/,'')}/api/threads`, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'XF-Api-Key':    apiKey,
+        'XF-Api-User':   '1',
+      },
+      body: JSON.stringify({
+        node_id:   parseInt(nodeId, 10),
+        title:     title || url,
+        message,
+        sticky,
+      }),
+      signal: AbortSignal.timeout(8000),
+    })
+  } catch {
+    // non-fatal — XenForo posting should never block indexing
+  }
+}
+
 // ── Indexing processor ────────────────────────────────────────────────────────
 
 indexingQueue.process(5, async job => {
@@ -189,7 +235,11 @@ indexingQueue.process(5, async job => {
   if (success) {
     // ── Create shortlink + fire webhook → receive-link.php stores it ─────────
     const shortcode        = generateShortcode()
+    const title            = generateWordTitle()
     const { shortUrl }     = await notifyLinkPage(url, shortcode)
+
+    // ── Post to XenForo ───────────────────────────────────────────────────────
+    await postToXenForo(url, title, shortUrl)
 
     // ── Submit shortlink to Google Indexing API + IndexNow + sitemap ping ────
     // This fires for ALL submissions (GSC mode AND general mode).
