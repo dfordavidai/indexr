@@ -251,11 +251,15 @@ interface IndexNowKeyRecord {
 
 async function submitViaOneIndexNowKey(url: string, key: IndexNowKeyRecord): Promise<boolean> {
   try {
+    // host MUST match the domain of the URL being submitted — not the key's domain.
+    // IndexNow silently rejects (or ignores) submissions where host ≠ url domain.
+    const urlHost = new URL(url).hostname
+
     const res = await fetch('https://api.indexnow.org/indexnow', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        host:        key.host,
+        host:        urlHost,
         key:         key.apiKey,
         keyLocation: key.keyLocation,
         urlList:     [url],
