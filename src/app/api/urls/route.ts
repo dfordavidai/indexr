@@ -15,20 +15,25 @@ const limiter = rateLimit({
   },
 })
 
+const VALID_METHODS = ['GOOGLE_API', 'SITEMAP_PING', 'FETCH_AS_GOOGLE', 'INDEXNOW'] as const
+
 const schema = z.object({
-  urls: z.array(z.string().url()).min(1).max(500),
-  method: z.enum(['GOOGLE_API', 'SITEMAP_PING', 'FETCH_AS_GOOGLE', 'INDEXNOW']).optional(),
+  urls:      z.array(z.string().url()).min(1).max(500),
+  // Legacy single-method support (kept for API backwards compat)
+  method:    z.enum(VALID_METHODS).optional(),
+  // New: multiple methods — GSC Submit fires all ticked
+  methods:   z.array(z.enum(VALID_METHODS)).min(1).max(4).optional(),
+  // When true, skip shortlink creation in the queue worker
+  noShorten: z.boolean().optional(),
 })
 
 async function getUserFromRequest(req: NextRequest) {
-  // Try session cookie first
   const session = await getSessionFromRequest(req)
   if (session) {
     const user = await prisma.user.findUnique({ where: { id: session.userId } })
     return user
   }
 
-  // Try API key
   const apiKey = req.headers.get('x-api-key')
   if (apiKey) {
     const keyHash = await hashApiKey(apiKey)
@@ -37,7 +42,6 @@ async function getUserFromRequest(req: NextRequest) {
       include: { user: true },
     })
     if (key?.isActive) {
-      // Update usage stats
       await prisma.apiKey.update({
         where: { id: key.id },
         data: { lastUsedAt: new Date(), usageCount: { increment: 1 } },
@@ -73,15 +77,20 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const { urls, method = 'GOOGLE_API' } = parsed.data
+  const { urls, method, methods, noShorten = false } = parsed.data
 
-  // Filter only HTTPS URLs
+  // Resolve the list of methods to use.
+  // Priority: methods[] (multi-select) > method (legacy) > default GOOGLE_API
+  const selectedMethods: string[] =
+    methods && methods.length > 0
+      ? methods
+      : method
+      ? [method]
+      : ['GOOGLE_API']
+
+  // Filter valid HTTPS URLs
   const validUrls = urls.filter(u => {
-    try {
-      return new URL(u).protocol === 'https:'
-    } catch {
-      return false
-    }
+    try { return new URL(u).protocol === 'https:' } catch { return false }
   })
 
   if (validUrls.length === 0) {
@@ -91,6 +100,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // Credits: 1 per URL (not multiplied by method count — methods are free extras)
   if (user.credits < validUrls.length) {
     return NextResponse.json(
       {
@@ -101,61 +111,72 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Check for duplicates already submitted
+  // Duplicate check — a URL is a duplicate if it's already active under ANY method
   const existingUrls = await prisma.submission.findMany({
     where: {
       userId: user.id,
-      url: { in: validUrls },
+      url:    { in: validUrls },
       status: { in: ['PENDING', 'QUEUED', 'SUBMITTED', 'CRAWLED', 'INDEXED'] },
     },
     select: { url: true },
   })
   const existingSet = new Set(existingUrls.map((s: { url: string }) => s.url))
 
-  const newUrls = validUrls.filter(u => !existingSet.has(u))
-  const duplicates = validUrls.filter(u => existingSet.has(u))
+  const newUrls    = validUrls.filter(u => !existingSet.has(u))
+  const duplicates = validUrls.filter(u =>  existingSet.has(u))
 
   const results: SubmissionResult[] = []
 
   if (newUrls.length > 0) {
-    // Deduct credits atomically
+    // Deduct credits (1 per unique URL regardless of method count)
     await prisma.user.update({
       where: { id: user.id },
-      data: { credits: { decrement: newUrls.length } },
+      data:  { credits: { decrement: newUrls.length } },
     })
 
     await prisma.creditLog.create({
       data: {
-        userId: user.id,
-        delta: -newUrls.length,
-        reason: 'submission',
+        userId:       user.id,
+        delta:        -newUrls.length,
+        reason:       'submission',
         balanceAfter: user.credits - newUrls.length,
       },
     })
 
-    // Create submissions
+    // Create one submission record per URL × per method, then enqueue each
+    const source = req.headers.get('x-api-key') ? 'api' : 'dashboard'
+
     const submissions = await prisma.$transaction(
-      newUrls.map(url =>
-        prisma.submission.create({
-          data: {
-            userId: user.id,
-            url,
-            status: 'PENDING',
-            method: method as 'GOOGLE_API',
-            creditsCost: 1,
-            source: req.headers.get('x-api-key') ? 'api' : 'dashboard',
-          },
-        })
+      newUrls.flatMap(url =>
+        selectedMethods.map(m =>
+          prisma.submission.create({
+            data: {
+              userId:      user.id,
+              url,
+              status:      'PENDING',
+              method:      m as 'GOOGLE_API',
+              creditsCost: selectedMethods.indexOf(m) === 0 ? 1 : 0, // credit only on first method
+              source,
+            },
+          })
+        )
       )
     )
 
-    // Enqueue all
+    // Enqueue: pass noShorten flag so the worker skips shortlink creation
     await Promise.all(
-      submissions.map((s: { id: string; url: string }) => enqueueUrl(s.id, s.url, user.id, method))
+      submissions.map((s: { id: string; url: string; method: string }) =>
+        enqueueUrl(s.id, s.url, user.id, s.method, false, noShorten)
+      )
     )
 
+    // Return one result entry per unique URL (not per method)
+    const seen = new Set<string>()
     for (const s of submissions as { url: string; id: string }[]) {
-      results.push({ url: s.url, status: 'queued', submissionId: s.id })
+      if (!seen.has(s.url)) {
+        seen.add(s.url)
+        results.push({ url: s.url, status: 'queued', submissionId: s.id })
+      }
     }
   }
 
@@ -166,10 +187,11 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     success: true,
     data: {
-      submitted: newUrls.length,
-      duplicates: duplicates.length,
-      creditsUsed: newUrls.length,
+      submitted:        newUrls.length,
+      duplicates:       duplicates.length,
+      creditsUsed:      newUrls.length,
       creditsRemaining: user.credits - newUrls.length,
+      methodsFired:     selectedMethods,
       results,
     },
   })
@@ -182,10 +204,10 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url)
-  const page = Math.max(1, parseInt(searchParams.get('page') ?? '1'))
-  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') ?? '20')))
+  const page   = Math.max(1, parseInt(searchParams.get('page')  ?? '1'))
+  const limit  = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') ?? '20')))
   const status = searchParams.get('status')
-  const skip = (page - 1) * limit
+  const skip   = (page - 1) * limit
 
   const where = {
     userId: user.id,
@@ -200,17 +222,9 @@ export async function GET(req: NextRequest) {
       skip,
       take: limit,
       select: {
-        id: true,
-        url: true,
-        status: true,
-        method: true,
-        source: true,
-        createdAt: true,
-        updatedAt: true,
-        indexedAt: true,
-        lastCheckedAt: true,
-        errorMessage: true,
-        creditsCost: true,
+        id: true, url: true, status: true, method: true, source: true,
+        createdAt: true, updatedAt: true, indexedAt: true,
+        lastCheckedAt: true, errorMessage: true, creditsCost: true,
       },
     }),
   ])
