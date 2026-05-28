@@ -76,7 +76,7 @@ const METHOD_COLOR: Record<string, string> = {
   GOOGLE_API: 'var(--blue)', INDEXNOW: 'var(--green)', SITEMAP_PING: 'var(--yellow)', FETCH_AS_GOOGLE: '#c9d1d9',
 }
 
-const TABS = ['overview', 'users', 'queue', 'engine', 'plans', 'submissions', 'drip', 'gsa'] as const
+const TABS = ['overview', 'users', 'queue', 'engine', 'plans', 'submissions', 'drip', 'gsa', 'indexnow'] as const
 type Tab = typeof TABS[number]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -192,6 +192,12 @@ function AdminPageInner() {
   const [gsaForm, setGsaForm] = useState({ label: '', credentialsJson: '', dailyQuota: 200, priority: 0 })
   const [gsaSaving, setGsaSaving] = useState(false)
   const [gsaHealthChecking, setGsaHealthChecking] = useState<string | null>(null)
+  
+  // IndexNow keys state
+  const [inKeys, setInKeys] = useState<Array<{id:string;label:string;apiKey:string;host:string;keyLocation:string;isActive:boolean;usageCount:number;lastUsedAt:string|null;createdAt:string}>>([])  
+  const [showAddIN, setShowAddIN] = useState(false)
+  const [inForm, setInForm] = useState({ label: '', apiKey: '', host: '', keyLocation: '' })
+  const [inSaving, setInSaving] = useState(false)
 
   const notify = (msg: string, ok = true) => {
     setToast({ msg, ok })
@@ -285,6 +291,12 @@ function AdminPageInner() {
       })
   }, [])
   useEffect(() => { if (tab === 'gsa') loadGSA() }, [tab, loadGSA])
+  
+  // ── Load IndexNow keys ───────────────────────────────────────────────────────
+  const loadIN = useCallback(() => {
+    fetch('/api/admin/indexnow').then(r => r.json()).then(d => { if (d.success) setInKeys(d.data.keys) })
+  }, [])
+  useEffect(() => { if (tab === 'indexnow') loadIN() }, [tab, loadIN])
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
@@ -429,6 +441,33 @@ function AdminPageInner() {
     else notify(data.error ?? 'Error', false)
   }
 
+  
+  // ── IndexNow CRUD ─────────────────────────────────────────────────────────────
+  async function addIN() {
+    setInSaving(true)
+    const res = await fetch('/api/admin/indexnow', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(inForm) })
+    const data = await res.json()
+    setInSaving(false)
+    if (data.success) {
+      notify('Key "' + inForm.label + '" added' + (data.data.reachable ? ' · Key file verified ✓' : ' · Warning: key file unreachable'))
+      setShowAddIN(false)
+      setInForm({ label: '', apiKey: '', host: '', keyLocation: '' })
+      loadIN()
+    } else notify(data.error ?? 'Error', false)
+  }
+  async function updateIN(id: string, updates: Record<string, unknown>) {
+    const res = await fetch('/api/admin/indexnow', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...updates }) })
+    const data = await res.json()
+    if (data.success) { setInKeys(prev => prev.map(k => k.id === id ? { ...k, ...data.data } : k)); notify('Key updated') }
+    else notify(data.error ?? 'Error', false)
+  }
+  async function deleteIN(id: string, label: string) {
+    if (!confirm('Delete IndexNow key "' + label + '"?')) return
+    const res = await fetch('/api/admin/indexnow?id=' + id, { method: 'DELETE' })
+    const data = await res.json()
+    if (data.success) { notify('Key deleted'); loadIN() }
+    else notify(data.error ?? 'Error', false)
+  }
   if (loading) return <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading admin panel...</div>
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
@@ -471,7 +510,7 @@ function AdminPageInner() {
             borderBottom: tab === t ? '2px solid var(--yellow)' : '2px solid transparent',
             marginBottom: -1, textTransform: 'capitalize', transition: 'color 0.12s',
           }}>
-            {t === 'drip' ? '⏱ drip' : t === 'gsa' ? '🔑 gsa' : t}
+            {t === 'drip' ? '⏱ drip' : t === 'gsa' ? '🔑 gsa' : t === 'indexnow' ? '⚡ indexnow' : t}
           </button>
         ))}
       </div>
@@ -1116,6 +1155,102 @@ function AdminPageInner() {
           )}
         </div>
       )}
+      {/* ── INDEXNOW KEYS ────────────────────────────────────────────────────── */}
+      {tab === 'indexnow' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+              {inKeys.length} key{inKeys.length !== 1 ? 's' : ''} configured
+              <span style={{ marginLeft: 12, fontSize: 11, color: 'var(--text-dim)' }}>All active keys fire simultaneously for every submission</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-ghost" style={{ padding: '8px 14px', fontSize: 12 }} onClick={loadIN}>↺ Refresh</button>
+              <button className="btn btn-primary" style={{ padding: '8px 16px', fontSize: 12 }} onClick={() => setShowAddIN(true)}>+ Add Key</button>
+            </div>
+          </div>
+          {inKeys.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
+              <div style={{ fontSize: 28, marginBottom: 10 }}>⚡</div>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>No IndexNow keys configured</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>Add multiple keys — all fire simultaneously for every URL submitted</div>
+              <button className="btn btn-primary" onClick={() => setShowAddIN(true)}>Add First Key</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {inKeys.map(k => (
+                <div key={k.id} className="card" style={{ borderColor: k.isActive ? 'var(--border-glow)' : 'var(--border)', opacity: k.isActive ? 1 : 0.6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 700, fontSize: 14 }}>{k.label}</span>
+                        <Badge label={k.isActive ? 'Active' : 'Disabled'} color={k.isActive ? 'var(--green)' : 'var(--text-dim)'} />
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>Host: {k.host}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>Key: {k.apiKey.slice(0,8)}{'*'.repeat(Math.max(0, k.apiKey.length - 8))}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>File: {k.keyLocation}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 16, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => updateIN(k.id, { isActive: !k.isActive })}>{k.isActive ? 'Disable' : 'Enable'}</button>
+                      <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 11, color: 'var(--red)' }} onClick={() => deleteIN(k.id, k.label)}>Delete</button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16, marginTop: 14, alignItems: 'center' }}>
+                    <div style={{ fontSize: 11 }}>
+                      <div style={{ color: 'var(--text-dim)', marginBottom: 2, fontSize: 10, textTransform: 'uppercase' }}>Total Fires</div>
+                      <div style={{ color: 'var(--green)', fontWeight: 700, fontSize: 18, fontFamily: 'var(--font-display)' }}>{k.usageCount.toLocaleString()}</div>
+                    </div>
+                    <div style={{ fontSize: 11 }}>
+                      <div style={{ color: 'var(--text-dim)', marginBottom: 2, fontSize: 10, textTransform: 'uppercase' }}>Last Used</div>
+                      <div style={{ color: 'var(--text-muted)' }}>{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : 'Never'}</div>
+                    </div>
+                    <div style={{ fontSize: 11 }}>
+                      <div style={{ color: 'var(--text-dim)', marginBottom: 2, fontSize: 10, textTransform: 'uppercase' }}>Added</div>
+                      <div style={{ color: 'var(--text-muted)' }}>{new Date(k.createdAt).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {showAddIN && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 24 }}
+              onClick={e => { if (e.target === e.currentTarget) setShowAddIN(false) }}>
+              <div className="card" style={{ width: '100%', maxWidth: 500 }}>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Add IndexNow Key</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 20 }}>All active keys fire simultaneously — add as many as you like.</div>
+                <div style={{ display: 'grid', gap: 14 }}>
+                  <div>
+                    <label className="label">Label</label>
+                    <input className="input" placeholder="e.g. Primary, Bing Key, Backup" value={inForm.label} onChange={e => setInForm(f => ({ ...f, label: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="label">API Key</label>
+                    <input className="input" placeholder="abc123def456..." value={inForm.apiKey} onChange={e => setInForm(f => ({ ...f, apiKey: e.target.value }))} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+                    <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>The key string you use to name your key file (e.g. abc123.txt)</div>
+                  </div>
+                  <div>
+                    <label className="label">Host (domain only)</label>
+                    <input className="input" placeholder="example.com" value={inForm.host} onChange={e => setInForm(f => ({ ...f, host: e.target.value }))} />
+                    <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>The domain where your key file lives — no https://</div>
+                  </div>
+                  <div>
+                    <label className="label">Key File URL</label>
+                    <input className="input" placeholder="https://example.com/abc123.txt" value={inForm.keyLocation} onChange={e => setInForm(f => ({ ...f, keyLocation: e.target.value }))} />
+                    <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>Full URL to the key file — must be publicly accessible</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center', padding: '10px' }} disabled={inSaving || !inForm.label || !inForm.apiKey || !inForm.host || !inForm.keyLocation} onClick={addIN}>
+                      {inSaving ? 'Verifying & Saving...' : 'Add Key'}
+                    </button>
+                    <button className="btn btn-ghost" style={{ padding: '10px 18px' }} onClick={() => setShowAddIN(false)}>Cancel</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
 
       {/* ── EDIT USER MODAL ──────────────────────────────────────────────────── */}
       {editUser && (
