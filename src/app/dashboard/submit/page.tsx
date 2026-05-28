@@ -23,22 +23,20 @@ const METHODS = [
 ]
 
 export default function SubmitPage() {
-  const [urlText,     setUrlText]     = useState('')
-  const [method,      setMethod]      = useState('GOOGLE_API')
-  const [generalMode, setGeneralMode] = useState(true)   // default ON for all users
-  const [isAdmin,     setIsAdmin]     = useState(false)  // only admins see the toggle
-  const [loading,     setLoading]     = useState(false)
-  const [result,      setResult]      = useState<SubmitResponse | null>(null)
-  const [error,       setError]       = useState('')
+  const [urlText,      setUrlText]      = useState('')
+  const [methods,      setMethods]      = useState<string[]>(['GOOGLE_API'])  // multi-select
+  const [generalMode,  setGeneralMode]  = useState(true)
+  const [isAdmin,      setIsAdmin]      = useState(false)
+  const [loading,      setLoading]      = useState(false)
+  const [result,       setResult]       = useState<SubmitResponse | null>(null)
+  const [error,        setError]        = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetch('/api/auth/me')
       .then(r => r.json())
       .then(d => {
-        if (d.success && d.data.role === 'ADMIN') {
-          setIsAdmin(true)
-        }
+        if (d.success && d.data.role === 'ADMIN') setIsAdmin(true)
       })
       .catch(() => {})
   }, [])
@@ -67,6 +65,14 @@ export default function SubmitPage() {
     e.target.value = ''
   }
 
+  function toggleMethod(value: string) {
+    setMethods(prev =>
+      prev.includes(value)
+        ? prev.length === 1 ? prev : prev.filter(m => m !== value)  // keep at least 1
+        : [...prev, value]
+    )
+  }
+
   async function handleSubmit() {
     setError('')
     setResult(null)
@@ -86,7 +92,12 @@ export default function SubmitPage() {
     try {
       const endpoint = generalMode ? '/api/urls/general' : '/api/urls'
       const body: Record<string, unknown> = { urls }
-      if (!generalMode) body.method = method
+
+      if (!generalMode) {
+        // GSC mode: pass the array of selected methods; no shortlink
+        body.methods  = methods
+        body.noShorten = true
+      }
 
       const res  = await fetch(endpoint, {
         method:  'POST',
@@ -245,34 +256,48 @@ export default function SubmitPage() {
         {/* ── Sidebar ───────────────────────────────────────────────────── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-          {/* Indexing method — admin + GSC mode only */}
+          {/* Indexing method — admin + GSC mode only — now CHECKBOXES */}
           {isAdmin && !generalMode && (
             <div className="card">
-              <div className="label" style={{ marginBottom: 14 }}>Indexing Method</div>
-              {METHODS.map(m => (
-                <label key={m.value} style={{
-                  display: 'flex', alignItems: 'flex-start', gap: 10,
-                  padding: '10px 12px', borderRadius: 6, cursor: 'pointer', marginBottom: 6,
-                  background: method === m.value ? 'var(--green-glow)'  : 'var(--bg-elevated)',
-                  border:     `1px solid ${method === m.value ? 'var(--border-glow)' : 'var(--border)'}`,
-                  transition: 'all 0.15s',
-                }}>
-                  <input
-                    type="radio"
-                    name="method"
-                    value={m.value}
-                    checked={method === m.value}
-                    onChange={() => setMethod(m.value)}
-                    style={{ marginTop: 2, accentColor: 'var(--green)' }}
-                  />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: method === m.value ? 'var(--green)' : 'var(--text)' }}>
-                      {m.label}
+              <div className="label" style={{ marginBottom: 6 }}>Indexing Method</div>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 }}>
+                Select one or more — all ticked methods fire simultaneously.
+              </p>
+              {METHODS.map(m => {
+                const checked = methods.includes(m.value)
+                return (
+                  <label key={m.value} style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                    padding: '10px 12px', borderRadius: 6, cursor: 'pointer', marginBottom: 6,
+                    background: checked ? 'var(--green-glow)'  : 'var(--bg-elevated)',
+                    border:     `1px solid ${checked ? 'var(--border-glow)' : 'var(--border)'}`,
+                    transition: 'all 0.15s',
+                  }}>
+                    <input
+                      type="checkbox"
+                      value={m.value}
+                      checked={checked}
+                      onChange={() => toggleMethod(m.value)}
+                      style={{ marginTop: 3, accentColor: 'var(--green)', width: 14, height: 14 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: checked ? 'var(--green)' : 'var(--text)' }}>
+                        {m.label}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{m.desc}</div>
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{m.desc}</div>
-                  </div>
-                </label>
-              ))}
+                  </label>
+                )
+              })}
+              {methods.length > 1 && (
+                <div style={{
+                  marginTop: 8, padding: '8px 10px', borderRadius: 6,
+                  background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)',
+                  fontSize: 11, color: 'var(--green)',
+                }}>
+                  ⚡ {methods.length} indexers will fire for each URL
+                </div>
+              )}
             </div>
           )}
 
@@ -286,6 +311,11 @@ export default function SubmitPage() {
               <div>• 1 credit per URL</div>
               <div>• Duplicates are skipped</div>
               <div>• CSV: one URL per row or column</div>
+              {!generalMode && (
+                <div style={{ marginTop: 8, color: 'var(--green)' }}>
+                  • GSC Submit: URLs fire directly, no shortlink created
+                </div>
+              )}
             </div>
           </div>
 
