@@ -141,6 +141,32 @@ async function notifyLinkPage(
 }
 
 
+// ── Self-ping home.php with Googlebot UA ─────────────────────────────────────
+// Fires a GET to SHORT_DOMAIN/ spoofing the Googlebot UA so the access-log
+// bot-counter on home.php increments — mirrors what receive-link.php does via
+// selfPing(SHORT_DOMAIN . '/') after a General Submit.
+// Called for GSC Submit (noShorten=true) so the counter stays consistent.
+
+async function selfPingHomePage(): Promise<void> {
+  const shortDomain = process.env.SHORT_DOMAIN
+  if (!shortDomain) return
+
+  const homeUrl = shortDomain.replace(/\/$/, '') + '/'
+
+  try {
+    await fetch(homeUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      },
+      redirect: 'manual', // don't follow — just log the hit, same as PHP selfPing
+      signal: AbortSignal.timeout(8000),
+    })
+  } catch {
+    // non-fatal — never block indexing for a ping failure
+  }
+}
+
 // ── XenForo: create a new thread for every submitted URL ─────────────────────
 //
 // Env vars required:
@@ -251,6 +277,12 @@ indexingQueue.process(5, async job => {
       if (shortUrl) {
         await submitShortlinkToSearchEngines(shortUrl)
       }
+    } else {
+      // GSC Submit path: no shortlink, but we still need to ping home.php with
+      // a Googlebot UA so the bot-counter on the link directory increments —
+      // mirrors the selfPing(SHORT_DOMAIN . '/') that receive-link.php fires
+      // for General Submit.
+      await selfPingHomePage()
     }
 
     // ── Telegram notification ─────────────────────────────────────────────────
