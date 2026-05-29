@@ -7,44 +7,52 @@ const PLANS = [
   {
     name: 'Starter',
     slug: 'starter',
-    price: 0,
-    credits: 10,
+    price: 5,
+    credits: 1500,
+    perLink: '$0.0033',
+    badge: null,
     features: [
-      '10 backlink submissions/month',
-      'Google Indexing API',
-      'Real-time crawl tracking',
+      '1,500 backlink credits (never expire)',
+      'Google Indexing API (official)',
+      'Real-time crawl status tracking',
       'Dashboard access',
+      'Bulk paste submission',
+      'Email notifications',
       'Community support',
     ],
-    cta: 'Start Free — No Card Needed',
+    cta: 'Buy Starter Pack →',
     highlight: false,
   },
   {
     name: 'Pro',
     slug: 'pro',
-    price: 29,
-    credits: 500,
+    price: 19,
+    credits: 7500,
+    perLink: '$0.0025',
+    badge: 'MOST POPULAR',
     features: [
-      '500 backlink submissions/month',
+      '7,500 backlink credits (never expire)',
       'Google Indexing API (primary)',
       'IndexNow multi-engine fallback',
       'Real-time status tracking',
-      'Bulk CSV upload (500 URLs)',
+      'Bulk CSV upload (up to 1,000 URLs)',
       'REST API + API key access',
       'Telegram bot notifications',
       'Email indexing reports',
       'Priority support',
     ],
-    cta: 'Start Pro',
+    cta: 'Buy Pro Pack →',
     highlight: true,
   },
   {
     name: 'Agency',
     slug: 'agency',
-    price: 99,
-    credits: 3000,
+    price: 49,
+    credits: 25000,
+    perLink: '$0.0020',
+    badge: 'BEST VALUE',
     features: [
-      '3,000 backlink submissions/month',
+      '25,000 backlink credits (never expire)',
       'All Pro features included',
       'Multi-method indexing engine',
       'Drip-feed scheduling',
@@ -54,7 +62,28 @@ const PLANS = [
       'Dedicated account manager',
       'SLA guarantee',
     ],
-    cta: 'Start Agency',
+    cta: 'Buy Agency Pack →',
+    highlight: false,
+  },
+  {
+    name: 'Enterprise',
+    slug: 'enterprise',
+    price: 120,
+    credits: 75000,
+    perLink: '$0.0016',
+    badge: 'MAX VOLUME',
+    features: [
+      '75,000 backlink credits (never expire)',
+      'All Agency features included',
+      'Highest API quota allocation',
+      'Custom drip-feed schedules',
+      'Multi-seat dashboard access',
+      'White-label client portal',
+      'Dedicated Telegram support',
+      'Priority indexing queue',
+      'Custom SLA & invoicing',
+    ],
+    cta: 'Buy Enterprise Pack →',
     highlight: false,
   },
 ]
@@ -97,8 +126,8 @@ const FAQS = [
     a: 'Yes. Link your Telegram account in your BestBacklinkIndexer settings, then use our Telegram bot to submit URLs on the go and receive instant notifications when Googlebot visits your backlinks or when a link is confirmed indexed.',
   },
   {
-    q: 'Do unused backlink indexing credits roll over?',
-    a: 'Credits reset monthly and do not roll over. Agency plan users can contact support for custom credit arrangements. We recommend using all credits before your billing date for maximum value.',
+    q: 'Do unused backlink indexing credits expire?',
+    a: 'No — your credits never expire and never reset. BestBacklinkIndexer operates on a pay-as-you-go credit model. Buy a pack once and use it at your own pace. Whether you submit 10 links today or 10,000 next month, your credits are always there waiting.',
   },
 ]
 
@@ -305,7 +334,7 @@ export default function LandingPage() {
             <a href="#pricing" style={{ color: 'var(--text-muted)', fontSize: 13, padding: '6px 12px', textDecoration: 'none' }}>Pricing</a>
             <a href="#faq" style={{ color: 'var(--text-muted)', fontSize: 13, padding: '6px 12px', textDecoration: 'none' }}>FAQ</a>
             <Link href="/auth/login" className="btn btn-ghost" style={{ padding: '7px 16px', fontSize: 13, marginLeft: 8 }}>Login</Link>
-            <Link href="/auth/register" className="btn btn-primary" style={{ padding: '7px 18px', fontSize: 13 }}>Get Started Free</Link>
+            <Link href="/auth/register" className="btn btn-primary" style={{ padding: '7px 18px', fontSize: 13 }}>Get Started →</Link>
           </div>
         </div>
       </nav>
@@ -368,12 +397,12 @@ export default function LandingPage() {
           </p>
 
           <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 44 }}>
-            Used by 18,000+ SEOs · 4.7M backlinks indexed · No credit card required to start
+            Used by 18,000+ SEOs · 4.7M backlinks indexed · Credits never expire
           </p>
 
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 72 }}>
             <Link href="/auth/register" className="btn btn-primary" style={{ padding: '14px 32px', fontSize: 16, fontWeight: 700, boxShadow: '0 0 24px rgba(34,197,94,0.35)' }}>
-              Index My Backlinks Free →
+              Index My Backlinks Now →
             </Link>
             <a href="#how-it-works" className="btn btn-ghost" style={{ padding: '14px 28px', fontSize: 15 }}>
               See How It Works
@@ -593,12 +622,12 @@ export default function LandingPage() {
           <div style={{ textAlign: 'center', marginBottom: 64 }}>
             <div style={{ fontSize: 12, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.14em', marginBottom: 12 }}>PRICING</div>
             <h2 id="pricing-heading" style={{ fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 700, marginBottom: 16 }}>
-              Simple backlink indexer pricing
+              Pay once. Use forever.
             </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: 16 }}>1 credit = 1 backlink submitted. No hidden fees. Cancel anytime.</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: 16 }}>1 credit = 1 backlink submitted. Credits <strong style={{ color: 'var(--green)' }}>never expire</strong>. No subscriptions. No resets.</p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, maxWidth: 980, margin: '0 auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20, maxWidth: 1100, margin: '0 auto' }}>
             {PLANS.map((plan) => (
               <div key={plan.slug} style={{
                 background: plan.highlight ? 'linear-gradient(145deg, rgba(34,197,94,0.09), rgba(34,197,94,0.02))' : 'var(--bg)',
@@ -608,25 +637,31 @@ export default function LandingPage() {
                 position: 'relative',
                 boxShadow: plan.highlight ? '0 0 40px rgba(34,197,94,0.12)' : 'none',
               }}>
-                {plan.highlight && (
+                {plan.badge && (
                   <div style={{
                     position: 'absolute', top: -1, left: '50%', transform: 'translateX(-50%)',
-                    background: 'var(--green)', color: '#000', fontSize: 11, fontWeight: 700,
+                    background: plan.highlight ? 'var(--green)' : 'var(--bg-elevated)',
+                    color: plan.highlight ? '#000' : 'var(--text-muted)',
+                    border: plan.highlight ? 'none' : '1px solid var(--border)',
+                    fontSize: 11, fontWeight: 700,
                     padding: '3px 16px', borderRadius: '0 0 8px 8px', whiteSpace: 'nowrap',
                   }}>
-                    MOST POPULAR
+                    {plan.badge}
                   </div>
                 )}
                 <div style={{ marginBottom: 22 }}>
                   <h3 style={{ fontSize: 20, fontWeight: 800, marginBottom: 10, fontFamily: 'var(--font-display)' }}>{plan.name}</h3>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                    <span style={{ fontSize: 44, fontWeight: 800, fontFamily: 'var(--font-display)', color: plan.price === 0 ? 'var(--text)' : 'var(--green)' }}>
-                      {plan.price === 0 ? 'Free' : `$${plan.price}`}
+                    <span style={{ fontSize: 44, fontWeight: 800, fontFamily: 'var(--font-display)', color: 'var(--green)' }}>
+                      ${plan.price}
                     </span>
-                    {plan.price > 0 && <span style={{ color: 'var(--text-muted)', fontSize: 15 }}>/month</span>}
+                    <span style={{ color: 'var(--text-muted)', fontSize: 15 }}>one-time</span>
                   </div>
                   <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 6 }}>
-                    {plan.credits.toLocaleString()} backlink credits/month
+                    {plan.credits.toLocaleString()} backlink credits
+                  </div>
+                  <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 3 }}>
+                    {plan.perLink} per link · <span style={{ color: 'var(--green)' }}>credits never expire</span>
                   </div>
                 </div>
 
@@ -649,8 +684,37 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
+
+          {/* Telegram topup box */}
+          <div style={{
+            maxWidth: 680, margin: '40px auto 0',
+            background: 'var(--bg-elevated)',
+            border: '1px solid rgba(34,197,94,0.25)',
+            borderRadius: 12,
+            padding: '28px 32px',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 22, marginBottom: 10 }}>💬</div>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, marginBottom: 10, color: 'var(--text)' }}>
+              Pay with USDT (TRC20) or Bitcoin
+            </h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.8, marginBottom: 18 }}>
+              We currently accept <strong style={{ color: 'var(--text)' }}>USDT (TRC20)</strong> and <strong style={{ color: 'var(--text)' }}>Bitcoin</strong> payments.
+              Message us on Telegram to complete your purchase — credits are added to your account instantly after confirmation.
+            </p>
+            <a
+              href="https://t.me/Bestbacklinkindexer"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-primary"
+              style={{ padding: '12px 28px', fontSize: 14, fontWeight: 700, gap: 10 }}
+            >
+              <span style={{ fontSize: 16 }}>✈</span> Message us on Telegram: @Bestbacklinkindexer
+            </a>
+          </div>
+
           <p style={{ textAlign: 'center', color: 'var(--text-dim)', fontSize: 12, marginTop: 28 }}>
-            All plans include: SSL encrypted submissions · GDPR compliant · 99.9% uptime SLA
+            All packs include: SSL encrypted submissions · GDPR compliant · 99.9% uptime SLA · Credits never reset
           </p>
         </div>
       </section>
@@ -744,22 +808,22 @@ export default function LandingPage() {
             fontFamily: 'var(--font-display)', lineHeight: 1.1,
           }}>
             Start indexing backlinks today.<br />
-            <span style={{ color: 'var(--green)' }}>10 free submissions on signup.</span>
+            <span style={{ color: 'var(--green)' }}>Credits never expire. Ever.</span>
           </h2>
           <p style={{ color: 'var(--text-muted)', fontSize: 16, marginBottom: 36, maxWidth: 440, margin: '0 auto 36px' }}>
-            No credit card required. Get your first backlinks indexed within hours.
+            Buy once, use at your pace. Get your first backlinks indexed within hours.
             Join 18,000+ SEOs already using the best backlink indexer online.
           </p>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link href="/auth/register" className="btn btn-primary" style={{ padding: '15px 36px', fontSize: 17, fontWeight: 700, boxShadow: '0 0 28px rgba(34,197,94,0.4)' }}>
-              Create Free Account →
+              Get Started — From $5 →
             </Link>
             <a href="#pricing" className="btn btn-ghost" style={{ padding: '15px 28px', fontSize: 15 }}>
               View Pricing
             </a>
           </div>
           <p style={{ marginTop: 24, fontSize: 12, color: 'var(--text-dim)' }}>
-            ✓ Free forever plan &nbsp;·&nbsp; ✓ No credit card &nbsp;·&nbsp; ✓ Cancel anytime
+            ✓ Credits never expire &nbsp;·&nbsp; ✓ No subscriptions &nbsp;·&nbsp; ✓ Pay via USDT or Bitcoin
           </p>
         </div>
       </section>
