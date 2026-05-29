@@ -1,5 +1,5 @@
 {
-  "name": "indexr",
+  "name": "bestbacklinkindexer",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -12,6 +12,9 @@
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx scripts/seed.ts",
     "workers:start": "tsx scripts/workers.ts"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "@prisma/client": "^5.10.0",
