@@ -1,224 +1,279 @@
-/**
- * /api/urls/link-submit
- *
- * Link Submit — sends URLs to InstantIndexer.org for indexing.
- * Supports Normal (1 credit/URL) and Instant (10 credits/URL) modes.
- * Checks user credits before submitting; deducts accordingly.
- */
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { getSessionFromRequest, hashApiKey } from '@/lib/auth'
-import { rateLimit, rateLimitResponse } from '@/lib/rate-limit'
-import { z } from 'zod'
-import type { SubmissionResult } from '@/types'
+'use client'
 
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  keyFn: req => {
-    const apiKey = req.headers.get('x-api-key')
-    return apiKey ?? req.headers.get('x-forwarded-for') ?? '127.0.0.1'
-  },
-})
+import { useState, useEffect } from 'react'
 
-const schema = z.object({
-  urls:    z.array(z.string().url()).min(1).max(500),
-  instant: z.boolean().optional().default(false),
-  project: z.string().optional().default('Link Submit'),
-})
-
-async function getUserFromRequest(req: NextRequest) {
-  const session = await getSessionFromRequest(req)
-  if (session) {
-    return prisma.user.findUnique({ where: { id: session.userId } })
-  }
-
-  const apiKey = req.headers.get('x-api-key')
-  if (apiKey) {
-    const keyHash = await hashApiKey(apiKey)
-    const key = await prisma.apiKey.findUnique({
-      where: { keyHash },
-      include: { user: true },
-    })
-    if (key?.isActive) {
-      await prisma.apiKey.update({
-        where: { id: key.id },
-        data: { lastUsedAt: new Date(), usageCount: { increment: 1 } },
-      })
-      return key.user
-    }
-  }
-
-  return null
+interface UserCredits {
+  credits: number
+  plan: string
 }
 
-export async function POST(req: NextRequest) {
-  const limit = limiter(req)
-  if (!limit.success) return rateLimitResponse(limit.resetAt)
+type IndexingMode = 'normal' | 'instant'
 
-  const user = await getUserFromRequest(req)
-  if (!user) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+interface SubmissionResult {
+  url: string
+  status: 'queued' | 'duplicate'
+  submissionId?: string
+}
+
+interface ApiResponse {
+  success: boolean
+  error?: string
+  data?: {
+    submitted: number
+    duplicates: number
+    creditsUsed: number
+    creditsRemaining: number
+    indexingMode: string
+    results: SubmissionResult[]
   }
+}
 
-  let body: unknown
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 })
-  }
+export default function SubmitPage() {
+  const [urls, setUrls]           = useState('')
+  const [mode, setMode]           = useState<IndexingMode>('normal')
+  const [project, setProject]     = useState('Link Submit')
+  const [loading, setLoading]     = useState(false)
+  const [result, setResult]       = useState<ApiResponse | null>(null)
+  const [user, setUser]           = useState<UserCredits | null>(null)
 
-  const parsed = schema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json(
-      { success: false, error: parsed.error.issues[0].message },
-      { status: 400 }
-    )
-  }
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then(r => r.json())
+      .then(d => { if (d.success) setUser({ credits: d.data.credits, plan: d.data.plan }) })
+      .catch(() => {})
+  }, [])
 
-  const { urls, instant, project } = parsed.data
+  const urlList = urls
+    .split(/[\n,]+/)
+    .map(u => u.trim())
+    .filter(u => u.length > 0)
 
-  // Accept both HTTP and HTTPS
-  const validUrls = urls.filter(u => {
+  const creditsPerUrl   = mode === 'instant' ? 10 : 1
+  const creditsNeeded   = urlList.length * creditsPerUrl
+  const canAfford       = user ? user.credits >= creditsNeeded : true
+  const urlCountValid   = urlList.length >= 1 && urlList.length <= 500
+
+  async function handleSubmit() {
+    if (!urlCountValid || loading) return
+    setLoading(true)
+    setResult(null)
+
     try {
-      const proto = new URL(u).protocol
-      return proto === 'https:' || proto === 'http:'
-    } catch {
-      return false
-    }
-  })
-
-  if (validUrls.length === 0) {
-    return NextResponse.json(
-      { success: false, error: 'No valid URLs provided' },
-      { status: 400 }
-    )
-  }
-
-  // Credits: Normal = 1 per URL, Instant = 10 per URL
-  const creditsPerUrl  = instant ? 10 : 1
-  const creditsNeeded  = validUrls.length * creditsPerUrl
-
-  if (user.credits < creditsNeeded) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: `Insufficient credits. Need ${creditsNeeded} (${validUrls.length} URL${validUrls.length !== 1 ? 's' : ''} × ${creditsPerUrl}), have ${user.credits}.`,
-      },
-      { status: 402 }
-    )
-  }
-
-  // Check for duplicates
-  const existingUrls = await prisma.submission.findMany({
-    where: {
-      userId: user.id,
-      url:    { in: validUrls },
-      status: { in: ['PENDING', 'QUEUED', 'SUBMITTED', 'CRAWLED', 'INDEXED'] },
-    },
-    select: { url: true },
-  })
-  const existingSet  = new Set(existingUrls.map((s: { url: string }) => s.url))
-  const newUrls      = validUrls.filter(u => !existingSet.has(u))
-  const duplicates   = validUrls.filter(u =>  existingSet.has(u))
-
-  const results: SubmissionResult[] = []
-
-  if (newUrls.length > 0) {
-    const totalCost = newUrls.length * creditsPerUrl
-
-    // ── Call InstantIndexer API ──────────────────────────────────────────────
-    const instantIndexerKey = process.env.INSTANT_INDEXER_API_KEY
-    if (!instantIndexerKey) {
-      return NextResponse.json(
-        { success: false, error: 'InstantIndexer API key not configured. Contact admin.' },
-        { status: 500 }
-      )
-    }
-
-    let apiError: string | null = null
-    try {
-      const iiRes = await fetch('https://instantindexer.org/api/submit.php', {
+      const res = await fetch('/api/urls/link-submit', {
         method:  'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key':    instantIndexerKey,
-        },
-        body: JSON.stringify({
-          project,
-          urls:    newUrls,
-          instant,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ urls: urlList, instant: mode === 'instant', project }),
       })
-
-      if (!iiRes.ok) {
-        const errText = await iiRes.text().catch(() => iiRes.statusText)
-        apiError = `InstantIndexer returned ${iiRes.status}: ${errText}`
+      const data: ApiResponse = await res.json()
+      setResult(data)
+      if (data.success && data.data) {
+        setUser(prev => prev ? { ...prev, credits: data.data!.creditsRemaining } : null)
+        if (data.data.submitted > 0) setUrls('')
       }
-    } catch (err) {
-      apiError = `Failed to reach InstantIndexer: ${err instanceof Error ? err.message : String(err)}`
-    }
-
-    if (apiError) {
-      return NextResponse.json(
-        { success: false, error: apiError },
-        { status: 502 }
-      )
-    }
-
-    // ── Deduct credits ───────────────────────────────────────────────────────
-    await prisma.user.update({
-      where: { id: user.id },
-      data:  { credits: { decrement: totalCost } },
-    })
-
-    await prisma.creditLog.create({
-      data: {
-        userId:       user.id,
-        delta:        -totalCost,
-        reason:       instant ? 'link_submit_instant' : 'link_submit_normal',
-        balanceAfter: user.credits - totalCost,
-      },
-    })
-
-    // ── Record submissions in DB ─────────────────────────────────────────────
-    const source = req.headers.get('x-api-key') ? 'api' : 'dashboard'
-
-    const submissions = await prisma.$transaction(
-      newUrls.map(url =>
-        prisma.submission.create({
-          data: {
-            userId:      user.id,
-            url,
-            status:      'QUEUED',
-            method:      'INDEXNOW', // closest existing enum; IndexNow is what II uses under the hood
-            creditsCost: creditsPerUrl,
-            source,
-          },
-        })
-      )
-    )
-
-    for (const s of submissions as { url: string; id: string }[]) {
-      results.push({ url: s.url, status: 'queued', submissionId: s.id })
+    } catch {
+      setResult({ success: false, error: 'Network error — please try again.' })
+    } finally {
+      setLoading(false)
     }
   }
 
-  for (const url of duplicates) {
-    results.push({ url, status: 'duplicate' })
+  const card: React.CSSProperties = {
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+    padding: '24px',
   }
 
-  const creditsPerUrlUsed = instant ? 10 : 1
+  const label: React.CSSProperties = {
+    display: 'block',
+    fontSize: 12,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.07em',
+    marginBottom: 8,
+    fontFamily: 'var(--font-mono)',
+  }
 
-  return NextResponse.json({
-    success: true,
-    data: {
-      submitted:        newUrls.length,
-      duplicates:       duplicates.length,
-      creditsUsed:      newUrls.length * creditsPerUrlUsed,
-      creditsRemaining: user.credits - newUrls.length * creditsPerUrlUsed,
-      indexingMode:     instant ? 'instant' : 'normal',
-      results,
-    },
-  })
+  return (
+    <div style={{ maxWidth: 760 }}>
+      {/* Header */}
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display)', margin: '0 0 6px' }}>
+          Submit URLs
+        </h1>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
+          Send URLs to InstantIndexer.org for fast Google indexing.
+        </p>
+      </div>
+
+      {/* Mode selector */}
+      <div style={{ ...card, marginBottom: 16 }}>
+        <span style={label}>Indexing Mode</span>
+        <div style={{ display: 'flex', gap: 10 }}>
+          {(['normal', 'instant'] as const).map(m => {
+            const active = mode === m
+            return (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                style={{
+                  flex: 1, padding: '12px 16px', borderRadius: 7, cursor: 'pointer',
+                  background: active ? 'var(--green-glow)' : 'var(--bg-elevated)',
+                  border: active ? '1px solid var(--border-glow)' : '1px solid var(--border)',
+                  color: active ? 'var(--green)' : 'var(--text-muted)',
+                  fontFamily: 'var(--font-mono)', fontSize: 13, textAlign: 'left',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 3 }}>
+                  {m === 'normal' ? '⊕ Normal' : '⚡ Instant'}
+                </div>
+                <div style={{ fontSize: 11, opacity: 0.75 }}>
+                  {m === 'normal' ? '1 credit / URL — standard speed' : '10 credits / URL — priority queue'}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* URL input */}
+      <div style={{ ...card, marginBottom: 16 }}>
+        <label style={label} htmlFor="urls">
+          URLs <span style={{ color: 'var(--text-dim)', textTransform: 'none', letterSpacing: 0 }}>
+            — one per line or comma-separated (max 500)
+          </span>
+        </label>
+        <textarea
+          id="urls"
+          value={urls}
+          onChange={e => setUrls(e.target.value)}
+          placeholder={'https://example.com/page-1\nhttps://example.com/page-2'}
+          rows={10}
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+            borderRadius: 7, color: 'var(--text)', fontFamily: 'var(--font-mono)',
+            fontSize: 12, padding: '12px 14px', resize: 'vertical',
+            outline: 'none', lineHeight: 1.6,
+          }}
+        />
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+          <span>
+            {urlList.length > 0
+              ? `${urlList.length} URL${urlList.length !== 1 ? 's' : ''} detected`
+              : 'Paste or type URLs above'}
+          </span>
+          {urlList.length > 500 && (
+            <span style={{ color: 'var(--red)' }}>⚠ Max 500 URLs per submission</span>
+          )}
+        </div>
+      </div>
+
+      {/* Project name */}
+      <div style={{ ...card, marginBottom: 16 }}>
+        <label style={label} htmlFor="project">Project Label (optional)</label>
+        <input
+          id="project"
+          type="text"
+          value={project}
+          onChange={e => setProject(e.target.value)}
+          placeholder="Link Submit"
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+            borderRadius: 7, color: 'var(--text)', fontFamily: 'var(--font-mono)',
+            fontSize: 13, padding: '10px 14px', outline: 'none',
+          }}
+        />
+      </div>
+
+      {/* Cost summary + submit */}
+      <div style={{ ...card, marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ fontSize: 13 }}>
+            {urlList.length > 0 ? (
+              <span>
+                Cost:{' '}
+                <strong style={{ color: canAfford ? 'var(--green)' : 'var(--red)', fontFamily: 'var(--font-mono)' }}>
+                  {creditsNeeded.toLocaleString()} credit{creditsNeeded !== 1 ? 's' : ''}
+                </strong>
+                {user && (
+                  <span style={{ color: 'var(--text-dim)', marginLeft: 8 }}>
+                    ({user.credits.toLocaleString()} available)
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span style={{ color: 'var(--text-dim)' }}>Enter URLs above to see cost</span>
+            )}
+            {!canAfford && urlList.length > 0 && (
+              <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 4 }}>
+                Insufficient credits — need {creditsNeeded - (user?.credits ?? 0)} more
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={handleSubmit}
+            disabled={loading || !urlCountValid || !canAfford}
+            style={{
+              padding: '10px 24px', borderRadius: 7, cursor: (loading || !urlCountValid || !canAfford) ? 'not-allowed' : 'pointer',
+              background: (loading || !urlCountValid || !canAfford) ? 'var(--bg-elevated)' : 'var(--green)',
+              border: '1px solid transparent',
+              color: (loading || !urlCountValid || !canAfford) ? 'var(--text-dim)' : '#000',
+              fontWeight: 600, fontSize: 13, fontFamily: 'var(--font-mono)',
+              transition: 'all 0.15s',
+            }}
+          >
+            {loading ? 'Submitting…' : `Submit ${urlList.length > 0 ? urlList.length + ' URL' + (urlList.length !== 1 ? 's' : '') : 'URLs'}`}
+          </button>
+        </div>
+      </div>
+
+      {/* Result */}
+      {result && (
+        <div style={{
+          ...card,
+          borderColor: result.success ? 'var(--border-glow)' : 'rgba(248,81,73,0.35)',
+          background: result.success ? 'var(--green-glow)' : 'rgba(248,81,73,0.06)',
+        }}>
+          {result.success && result.data ? (
+            <>
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
+                {[
+                  { label: 'Queued',     value: result.data.submitted,  color: 'var(--green)' },
+                  { label: 'Duplicates', value: result.data.duplicates, color: 'var(--text-muted)' },
+                  { label: 'Credits used', value: result.data.creditsUsed, color: 'var(--yellow)' },
+                  { label: 'Credits left', value: result.data.creditsRemaining, color: 'var(--blue)' },
+                ].map(s => (
+                  <div key={s.label}>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 2, fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>{s.label}</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: s.color, fontFamily: 'var(--font-display)' }}>{s.value.toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+              {result.data.results.length > 0 && (
+                <div style={{ maxHeight: 200, overflowY: 'auto', borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                  {result.data.results.map((r, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                      <span style={{ color: r.status === 'queued' ? 'var(--green)' : 'var(--text-dim)', flexShrink: 0 }}>
+                        {r.status === 'queued' ? '✓' : '~'}
+                      </span>
+                      <span style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.url}</span>
+                      <span style={{ color: 'var(--text-dim)', flexShrink: 0 }}>{r.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ color: 'var(--red)', fontSize: 13, fontFamily: 'var(--font-mono)' }}>
+              ✕ {result.error}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
