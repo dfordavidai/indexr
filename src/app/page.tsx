@@ -8,15 +8,16 @@ const PLANS = [
     name: 'Starter',
     slug: 'starter',
     price: 5,
-    credits: 1500,
-    perLink: '$0.0033',
+    credits: 500,
+    perLink: '$0.010',
     badge: null,
+    parasiteFeatures: false,
     features: [
-      '1,500 backlink credits (never expire)',
-      'Google Indexing API (official)',
+      '500 backlink credits (never expire)',
+      'Google Indexing API (official method)',
       'Real-time crawl status tracking',
       'Dashboard access',
-      'Bulk paste submission',
+      'Bulk paste submission (up to 50 URLs)',
       'Email notifications',
       'Community support',
     ],
@@ -26,16 +27,17 @@ const PLANS = [
   {
     name: 'Pro',
     slug: 'pro',
-    price: 19,
-    credits: 7500,
-    perLink: '$0.0025',
+    price: 39,
+    credits: 5000,
+    perLink: '$0.0078',
     badge: 'MOST POPULAR',
+    parasiteFeatures: false,
     features: [
-      '7,500 backlink credits (never expire)',
+      '5,000 backlink credits (never expire)',
       'Google Indexing API (primary)',
       'IndexNow multi-engine fallback',
       'Real-time status tracking',
-      'Bulk CSV upload (up to 1,000 URLs)',
+      'Bulk CSV upload (up to 500 URLs)',
       'REST API + API key access',
       'Telegram bot notifications',
       'Email indexing reports',
@@ -47,12 +49,13 @@ const PLANS = [
   {
     name: 'Agency',
     slug: 'agency',
-    price: 49,
-    credits: 25000,
-    perLink: '$0.0020',
-    badge: 'BEST VALUE',
+    price: 149,
+    credits: 20000,
+    perLink: '$0.0075',
+    badge: 'PARASITE POWER',
+    parasiteFeatures: true,
     features: [
-      '25,000 backlink credits (never expire)',
+      '20,000 backlink credits (never expire)',
       'All Pro features included',
       'Multi-method indexing engine',
       'Drip-feed scheduling',
@@ -61,6 +64,12 @@ const PLANS = [
       'Admin API access',
       'Dedicated account manager',
       'SLA guarantee',
+      '─── PARASITE SEO ENGINE ───',
+      'Publish to 50+ DA 70–95 parasite sites',
+      'Auto-content generation per parasite page',
+      'Keyword targeting & anchor text injection',
+      'Parasite index tracker dashboard',
+      'Custom parasite campaign scheduling',
     ],
     cta: 'Buy Agency Pack →',
     highlight: false,
@@ -68,20 +77,30 @@ const PLANS = [
   {
     name: 'Enterprise',
     slug: 'enterprise',
-    price: 120,
-    credits: 75000,
-    perLink: '$0.0016',
-    badge: 'MAX VOLUME',
+    price: 349,
+    credits: 60000,
+    perLink: '$0.0058',
+    badge: 'FULL ARSENAL',
+    parasiteFeatures: true,
     features: [
-      '75,000 backlink credits (never expire)',
+      '60,000 backlink credits (never expire)',
       'All Agency features included',
       'Highest API quota allocation',
       'Custom drip-feed schedules',
-      'Multi-seat dashboard access',
+      'Multi-seat dashboard (up to 10 seats)',
       'White-label client portal',
-      'Dedicated Telegram support',
-      'Priority indexing queue',
+      'Dedicated Telegram support channel',
+      'Priority indexing queue (skip the line)',
       'Custom SLA & invoicing',
+      '─── PARASITE SEO ENGINE (FULL) ───',
+      'Publish to 100+ DA 70–98 parasite sites',
+      'AI-powered parasite content generation',
+      'Bulk parasite blasting (1,000 pages/batch)',
+      'Parasite SERP rank tracking',
+      'Expired domain parasite integration',
+      'Private PBN parasite network access',
+      'Tiered parasite link building automation',
+      'Dedicated parasite campaign manager',
     ],
     cta: 'Buy Enterprise Pack →',
     highlight: false,
@@ -143,6 +162,12 @@ const FEATURES = [
     title: 'Multi-Method Indexing Fallback',
     desc: 'If the primary Google API hits quota, we automatically cascade to IndexNow (notifies Bing, Yandex simultaneously), sitemap pinging, and crawl trigger techniques. Your backlinks always have maximum indexing coverage.',
     keyword: 'indexnow backlink indexer',
+  },
+  {
+    icon: '🦠',
+    title: 'Parasite SEO Engine (Agency & Enterprise)',
+    desc: 'Publish optimized pages directly onto DA 70–98 authority sites — Medium, HubPages, Blogspot, and 100+ more. Parasite pages rank fast because they inherit massive domain authority, then your indexed backlinks compound the power. The most devastating ranking combo online.',
+    keyword: 'parasite seo backlink indexer',
   },
   {
     icon: '📊',
@@ -222,10 +247,10 @@ const TESTIMONIALS = [
 ]
 
 const STATS = [
-  { value: '4.7M+', label: 'Backlinks Indexed' },
+  { value: '87K+', label: 'Backlinks Indexed' },
   { value: '98.2%', label: 'Crawl Success Rate' },
   { value: '<6 hrs', label: 'Avg. Crawl Time' },
-  { value: '18K+', label: 'SEOs & Agencies' },
+  { value: '300+', label: 'SEOs & Agencies' },
 ]
 
 const HOW_IT_WORKS = [
@@ -397,7 +422,7 @@ export default function LandingPage() {
           </p>
 
           <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 44 }}>
-            Used by 18,000+ SEOs · 4.7M backlinks indexed · Credits never expire
+            Trusted by 300+ SEOs · 87K backlinks indexed · Credits never expire
           </p>
 
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 72 }}>
@@ -725,7 +750,7 @@ export default function LandingPage() {
           <div style={{ textAlign: 'center', marginBottom: 64 }}>
             <div style={{ fontSize: 12, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.14em', marginBottom: 12 }}>REVIEWS</div>
             <h2 id="testimonials-heading" style={{ fontSize: 'clamp(26px, 4vw, 40px)', fontWeight: 700 }}>
-              Trusted by 18,000+ SEOs &amp; link builders
+              Trusted by 300+ SEOs &amp; link builders
             </h2>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
@@ -812,7 +837,7 @@ export default function LandingPage() {
           </h2>
           <p style={{ color: 'var(--text-muted)', fontSize: 16, marginBottom: 36, maxWidth: 440, margin: '0 auto 36px' }}>
             Buy once, use at your pace. Get your first backlinks indexed within hours.
-            Join 18,000+ SEOs already using the best backlink indexer online.
+            Join 300+ SEOs already using the best backlink indexer online.
           </p>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link href="/auth/register" className="btn btn-primary" style={{ padding: '15px 36px', fontSize: 17, fontWeight: 700, boxShadow: '0 0 28px rgba(34,197,94,0.4)' }}>
