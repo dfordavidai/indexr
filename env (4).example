@@ -1,0 +1,43 @@
+# ═══════════════════════════════════════════════════════════════
+# BestBacklinkIndexer — Environment Configuration
+# Copy this file to .env.local and fill in all values
+# ═══════════════════════════════════════════════════════════════
+
+# ── App ──────────────────────────────────────────────────────
+NEXT_PUBLIC_APP_URL=https://bestbacklinkindexer.com.ng
+NEXT_PUBLIC_BRAND=BestBacklinkIndexer
+JWT_SECRET=CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_STRING
+
+# ── Database (PostgreSQL) ─────────────────────────────────────
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/bestbacklinkindexer
+
+# ── Redis (for Bull queue) ────────────────────────────────────
+REDIS_URL=redis://localhost:6379
+
+# ── Google Indexing API ───────────────────────────────────────
+# Create a service account at console.cloud.google.com
+# Enable the "Indexing API" and download the JSON key
+GOOGLE_SERVICE_ACCOUNT_EMAIL=your-service-account@project.iam.gserviceaccount.com
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_KEY_HERE\n-----END PRIVATE KEY-----\n"
+
+# ── IndexNow (Bing / Multi-engine fallback) ───────────────────
+INDEXNOW_KEY=your_indexnow_key_here
+# File must exist at: /public/your_indexnow_key_here.txt containing the key
+
+# ── Stripe (Payments) ─────────────────────────────────────────
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
+STRIPE_STARTER_PRICE_ID=price_...
+STRIPE_PRO_PRICE_ID=price_...
+STRIPE_AGENCY_PRICE_ID=price_...
+
+# ── Email (Resend) ────────────────────────────────────────────
+RESEND_API_KEY=re_...
+EMAIL_FROM=noreply@bestbacklinkindexer.com.ng
+
+# ── Telegram Bot ──────────────────────────────────────────────
+TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
+
+# ── Admin ─────────────────────────────────────────────────────
+ADMIN_SECRET=CHANGE_THIS_TO_A_SECURE_ADMIN_PASSWORD
