@@ -1,326 +1,224 @@
-'use client'
+/**
+ * /api/urls/link-submit
+ *
+ * Link Submit — sends URLs to InstantIndexer.org for indexing.
+ * Supports Normal (1 credit/URL) and Instant (10 credits/URL) modes.
+ * Checks user credits before submitting; deducts accordingly.
+ */
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { getSessionFromRequest, hashApiKey } from '@/lib/auth'
+import { rateLimit, rateLimitResponse } from '@/lib/rate-limit'
+import { z } from 'zod'
+import type { SubmissionResult } from '@/types'
 
-import { useState, useRef, useEffect } from 'react'
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  keyFn: req => {
+    const apiKey = req.headers.get('x-api-key')
+    return apiKey ?? req.headers.get('x-forwarded-for') ?? '127.0.0.1'
+  },
+})
 
-interface SubmissionResult {
-  url: string
-  status: 'queued' | 'duplicate' | 'invalid' | 'insufficient_credits'
-  submissionId?: string
-}
+const schema = z.object({
+  urls:    z.array(z.string().url()).min(1).max(500),
+  instant: z.boolean().optional().default(false),
+  project: z.string().optional().default('Link Submit'),
+})
 
-interface SubmitResponse {
-  submitted: number
-  duplicates: number
-  creditsUsed: number
-  creditsRemaining: number
-  results: SubmissionResult[]
-}
-
-const METHODS = [
-  { value: 'GOOGLE_API',   label: 'Google Indexing API', desc: 'Official method, fastest' },
-  { value: 'INDEXNOW',     label: 'IndexNow',            desc: 'Bing/Yandex compatible'  },
-  { value: 'SITEMAP_PING', label: 'Sitemap Ping',        desc: 'XML sitemap submission'  },
-]
-
-export default function SubmitPage() {
-  const [urlText,      setUrlText]      = useState('')
-  const [methods,      setMethods]      = useState<string[]>(['GOOGLE_API'])  // multi-select
-  const [generalMode,  setGeneralMode]  = useState(true)
-  const [isAdmin,      setIsAdmin]      = useState(false)
-  const [loading,      setLoading]      = useState(false)
-  const [result,       setResult]       = useState<SubmitResponse | null>(null)
-  const [error,        setError]        = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    fetch('/api/auth/me')
-      .then(r => r.json())
-      .then(d => {
-        if (d.success && d.data.role === 'ADMIN') setIsAdmin(true)
-      })
-      .catch(() => {})
-  }, [])
-
-  function parseUrls(text: string): string[] {
-    return text
-      .split(/[\n,\s]+/)
-      .map(u => u.trim())
-      .filter(u => u.length > 0 && u.startsWith('http'))
+async function getUserFromRequest(req: NextRequest) {
+  const session = await getSessionFromRequest(req)
+  if (session) {
+    return prisma.user.findUnique({ where: { id: session.userId } })
   }
 
-  function handleCsvUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => {
-      const text = ev.target?.result as string
-      const urls = text.match(/https?:\/\/[^\s,"\\n]+/g) ?? []
-      setUrlText(prev => {
-        const existing = new Set(prev.split('\n').map(u => u.trim()).filter(Boolean))
-        const newOnes  = urls.filter(u => !existing.has(u))
-        return prev ? prev + '\n' + newOnes.join('\n') : newOnes.join('\n')
+  const apiKey = req.headers.get('x-api-key')
+  if (apiKey) {
+    const keyHash = await hashApiKey(apiKey)
+    const key = await prisma.apiKey.findUnique({
+      where: { keyHash },
+      include: { user: true },
+    })
+    if (key?.isActive) {
+      await prisma.apiKey.update({
+        where: { id: key.id },
+        data: { lastUsedAt: new Date(), usageCount: { increment: 1 } },
       })
+      return key.user
     }
-    reader.readAsText(file)
-    e.target.value = ''
   }
 
-  function toggleMethod(value: string) {
-    setMethods(prev =>
-      prev.includes(value)
-        ? prev.length === 1 ? prev : prev.filter(m => m !== value)  // keep at least 1
-        : [...prev, value]
+  return null
+}
+
+export async function POST(req: NextRequest) {
+  const limit = limiter(req)
+  if (!limit.success) return rateLimitResponse(limit.resetAt)
+
+  const user = await getUserFromRequest(req)
+  if (!user) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+  }
+
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  const parsed = schema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json(
+      { success: false, error: parsed.error.issues[0].message },
+      { status: 400 }
     )
   }
 
-  async function handleSubmit() {
-    setError('')
-    setResult(null)
+  const { urls, instant, project } = parsed.data
 
-    const urls = parseUrls(urlText)
-    if (urls.length === 0) {
-      setError('No valid URLs found. Enter one URL per line starting with http:// or https://')
-      return
-    }
-    if (urls.length > 500) {
-      setError('Maximum 500 URLs per batch. Please split into multiple submissions.')
-      return
-    }
-
-    setLoading(true)
-
+  // Accept both HTTP and HTTPS
+  const validUrls = urls.filter(u => {
     try {
-      const endpoint = generalMode ? '/api/urls/general' : '/api/urls'
-      const body: Record<string, unknown> = { urls }
-
-      if (!generalMode) {
-        // GSC mode: pass the array of selected methods; no shortlink
-        body.methods  = methods
-        body.noShorten = true
-      }
-
-      const res  = await fetch(endpoint, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
-      })
-      const data = await res.json()
-
-      if (!data.success) {
-        setError(data.error ?? 'Submission failed')
-        return
-      }
-
-      setResult(data.data)
-      setUrlText('')
+      const proto = new URL(u).protocol
+      return proto === 'https:' || proto === 'http:'
     } catch {
-      setError('Network error. Please try again.')
-    } finally {
-      setLoading(false)
+      return false
+    }
+  })
+
+  if (validUrls.length === 0) {
+    return NextResponse.json(
+      { success: false, error: 'No valid URLs provided' },
+      { status: 400 }
+    )
+  }
+
+  // Credits: Normal = 1 per URL, Instant = 10 per URL
+  const creditsPerUrl  = instant ? 10 : 1
+  const creditsNeeded  = validUrls.length * creditsPerUrl
+
+  if (user.credits < creditsNeeded) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Insufficient credits. Need ${creditsNeeded} (${validUrls.length} URL${validUrls.length !== 1 ? 's' : ''} × ${creditsPerUrl}), have ${user.credits}.`,
+      },
+      { status: 402 }
+    )
+  }
+
+  // Check for duplicates
+  const existingUrls = await prisma.submission.findMany({
+    where: {
+      userId: user.id,
+      url:    { in: validUrls },
+      status: { in: ['PENDING', 'QUEUED', 'SUBMITTED', 'CRAWLED', 'INDEXED'] },
+    },
+    select: { url: true },
+  })
+  const existingSet  = new Set(existingUrls.map((s: { url: string }) => s.url))
+  const newUrls      = validUrls.filter(u => !existingSet.has(u))
+  const duplicates   = validUrls.filter(u =>  existingSet.has(u))
+
+  const results: SubmissionResult[] = []
+
+  if (newUrls.length > 0) {
+    const totalCost = newUrls.length * creditsPerUrl
+
+    // ── Call InstantIndexer API ──────────────────────────────────────────────
+    const instantIndexerKey = process.env.INSTANT_INDEXER_API_KEY
+    if (!instantIndexerKey) {
+      return NextResponse.json(
+        { success: false, error: 'InstantIndexer API key not configured. Contact admin.' },
+        { status: 500 }
+      )
+    }
+
+    let apiError: string | null = null
+    try {
+      const iiRes = await fetch('https://instantindexer.org/api/submit.php', {
+        method:  'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key':    instantIndexerKey,
+        },
+        body: JSON.stringify({
+          project,
+          urls:    newUrls,
+          instant,
+        }),
+      })
+
+      if (!iiRes.ok) {
+        const errText = await iiRes.text().catch(() => iiRes.statusText)
+        apiError = `InstantIndexer returned ${iiRes.status}: ${errText}`
+      }
+    } catch (err) {
+      apiError = `Failed to reach InstantIndexer: ${err instanceof Error ? err.message : String(err)}`
+    }
+
+    if (apiError) {
+      return NextResponse.json(
+        { success: false, error: apiError },
+        { status: 502 }
+      )
+    }
+
+    // ── Deduct credits ───────────────────────────────────────────────────────
+    await prisma.user.update({
+      where: { id: user.id },
+      data:  { credits: { decrement: totalCost } },
+    })
+
+    await prisma.creditLog.create({
+      data: {
+        userId:       user.id,
+        delta:        -totalCost,
+        reason:       instant ? 'link_submit_instant' : 'link_submit_normal',
+        balanceAfter: user.credits - totalCost,
+      },
+    })
+
+    // ── Record submissions in DB ─────────────────────────────────────────────
+    const source = req.headers.get('x-api-key') ? 'api' : 'dashboard'
+
+    const submissions = await prisma.$transaction(
+      newUrls.map(url =>
+        prisma.submission.create({
+          data: {
+            userId:      user.id,
+            url,
+            status:      'QUEUED',
+            method:      'INDEXNOW', // closest existing enum; IndexNow is what II uses under the hood
+            creditsCost: creditsPerUrl,
+            source,
+          },
+        })
+      )
+    )
+
+    for (const s of submissions as { url: string; id: string }[]) {
+      results.push({ url: s.url, status: 'queued', submissionId: s.id })
     }
   }
 
-  const urlCount = parseUrls(urlText).length
+  for (const url of duplicates) {
+    results.push({ url, status: 'duplicate' })
+  }
 
-  return (
-    <div>
-      <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 700, marginBottom: 6 }}>Submit URLs</h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>
-          Bulk paste or upload a CSV. Up to 500 URLs per batch.
-        </p>
-      </div>
+  const creditsPerUrlUsed = instant ? 10 : 1
 
-      {/* ── Mode toggle — admin only ──────────────────────────────────────── */}
-      {isAdmin && (
-        <div style={{
-          display: 'flex', gap: 0, marginBottom: 28,
-          border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden',
-          width: 'fit-content',
-        }}>
-          <button
-            onClick={() => setGeneralMode(true)}
-            style={{
-              padding: '9px 22px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-              border: 'none', outline: 'none',
-              background:  generalMode ? 'var(--green)'     : 'var(--bg-elevated)',
-              color:        generalMode ? '#000'              : 'var(--text-muted)',
-              transition: 'all 0.15s',
-            }}>
-            General Submit
-          </button>
-          <button
-            onClick={() => setGeneralMode(false)}
-            style={{
-              padding: '9px 22px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-              border: 'none', borderLeft: '1px solid var(--border)', outline: 'none',
-              background: !generalMode ? 'var(--green)'     : 'var(--bg-elevated)',
-              color:      !generalMode ? '#000'              : 'var(--text-muted)',
-              transition: 'all 0.15s',
-            }}>
-            GSC Submit
-          </button>
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 24 }}>
-
-        {/* ── Main form ─────────────────────────────────────────────────── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <label className="label" style={{ margin: 0 }}>URLs (one per line)</label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {urlCount > 0 && (
-                  <span style={{ fontSize: 12, color: 'var(--green)' }}>
-                    {urlCount} URL{urlCount !== 1 ? 's' : ''} detected
-                  </span>
-                )}
-                <button
-                  className="btn btn-ghost"
-                  style={{ padding: '5px 12px', fontSize: 12 }}
-                  onClick={() => fileRef.current?.click()}>
-                  Upload CSV
-                </button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".csv,.txt"
-                  onChange={handleCsvUpload}
-                  style={{ display: 'none' }}
-                />
-              </div>
-            </div>
-            <textarea
-              className="input"
-              value={urlText}
-              onChange={e => setUrlText(e.target.value)}
-              placeholder={`https://example.com/page-1\nhttps://example.com/page-2\nhttps://another-site.com/backlink`}
-              style={{ minHeight: 280, resize: 'vertical', lineHeight: 1.6 }}
-            />
-          </div>
-
-          {error && (
-            <div style={{
-              background: 'rgba(248,81,73,0.1)', border: '1px solid rgba(248,81,73,0.3)',
-              borderRadius: 6, padding: '12px 16px', color: 'var(--red)', fontSize: 13,
-            }}>
-              {error}
-            </div>
-          )}
-
-          {result && (
-            <div style={{
-              background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.3)',
-              borderRadius: 8, padding: '16px 20px',
-            }}>
-              <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
-                <div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--font-display)' }}>
-                    {result.submitted}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Queued</div>
-                </div>
-                {result.duplicates > 0 && (
-                  <div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--yellow)', fontFamily: 'var(--font-display)' }}>
-                      {result.duplicates}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Duplicates skipped</div>
-                  </div>
-                )}
-                <div>
-                  <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
-                    {result.creditsRemaining}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Credits remaining</div>
-                </div>
-              </div>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                ✓ URLs are queued for indexing. Check status in Submissions.
-              </p>
-            </div>
-          )}
-
-          <button
-            className="btn btn-primary"
-            onClick={handleSubmit}
-            disabled={loading || urlCount === 0}
-            style={{ padding: '13px', fontSize: 15, justifyContent: 'center' }}>
-            {loading
-              ? 'Submitting...'
-              : `Submit ${urlCount > 0 ? urlCount + ' URL' + (urlCount !== 1 ? 's' : '') : 'URLs'} →`}
-          </button>
-        </div>
-
-        {/* ── Sidebar ───────────────────────────────────────────────────── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-          {/* Indexing method — admin + GSC mode only — now CHECKBOXES */}
-          {isAdmin && !generalMode && (
-            <div className="card">
-              <div className="label" style={{ marginBottom: 6 }}>Indexing Method</div>
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 }}>
-                Select one or more — all ticked methods fire simultaneously.
-              </p>
-              {METHODS.map(m => {
-                const checked = methods.includes(m.value)
-                return (
-                  <label key={m.value} style={{
-                    display: 'flex', alignItems: 'flex-start', gap: 10,
-                    padding: '10px 12px', borderRadius: 6, cursor: 'pointer', marginBottom: 6,
-                    background: checked ? 'var(--green-glow)'  : 'var(--bg-elevated)',
-                    border:     `1px solid ${checked ? 'var(--border-glow)' : 'var(--border)'}`,
-                    transition: 'all 0.15s',
-                  }}>
-                    <input
-                      type="checkbox"
-                      value={m.value}
-                      checked={checked}
-                      onChange={() => toggleMethod(m.value)}
-                      style={{ marginTop: 3, accentColor: 'var(--green)', width: 14, height: 14 }}
-                    />
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: checked ? 'var(--green)' : 'var(--text)' }}>
-                        {m.label}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{m.desc}</div>
-                    </div>
-                  </label>
-                )
-              })}
-              {methods.length > 1 && (
-                <div style={{
-                  marginTop: 8, padding: '8px 10px', borderRadius: 6,
-                  background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)',
-                  fontSize: 11, color: 'var(--green)',
-                }}>
-                  ⚡ {methods.length} indexers will fire for each URL
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Tips */}
-          <div className="card" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.8 }}>
-              <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Tips</div>
-              <div>• One URL per line</div>
-              <div>• HTTP and HTTPS accepted</div>
-              <div>• Max 500 per batch</div>
-              <div>• 1 credit per URL</div>
-              <div>• Duplicates are skipped</div>
-              <div>• CSV: one URL per row or column</div>
-              {!generalMode && (
-                <div style={{ marginTop: 8, color: 'var(--green)' }}>
-                  • GSC Submit: URLs fire directly, no shortlink created
-                </div>
-              )}
-            </div>
-          </div>
-
-        </div>
-      </div>
-    </div>
-  )
+  return NextResponse.json({
+    success: true,
+    data: {
+      submitted:        newUrls.length,
+      duplicates:       duplicates.length,
+      creditsUsed:      newUrls.length * creditsPerUrlUsed,
+      creditsRemaining: user.credits - newUrls.length * creditsPerUrlUsed,
+      indexingMode:     instant ? 'instant' : 'normal',
+      results,
+    },
+  })
 }
