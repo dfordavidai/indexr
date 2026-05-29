@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 :root {
   --bg: #030712;
@@ -16,7 +16,7 @@
   --yellow: #e3b341;
   --blue: #58a6ff;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --font-display: 'Syne', sans-serif;
+  --font-display: 'Space Grotesk', sans-serif;
   --radius: 6px;
   --radius-lg: 10px;
 }
