@@ -47,27 +47,28 @@ export async function POST(req: NextRequest) {
 
   // Give free plan credits on signup
   const freePlan = await prisma.plan.findUnique({ where: { slug: 'free' } })
+  const signupCredits = freePlan?.creditsPerMonth ?? 10
 
-  const user = await prisma.user.create({
+  const [user] = await prisma.$transaction([
+    prisma.user.create({
+      data: {
+        email: email.toLowerCase(),
+        passwordHash,
+        name: name ?? null,
+        planId: freePlan?.id ?? null,
+        credits: signupCredits,
+      },
+    }),
+  ])
+
+  await prisma.creditLog.create({
     data: {
-      email: email.toLowerCase(),
-      passwordHash,
-      name: name ?? null,
-      planId: freePlan?.id ?? null,
-      credits: freePlan?.creditsPerMonth ?? 10,
+      userId:      user.id,
+      delta:       signupCredits,
+      reason:      'signup_bonus',
+      balanceAfter: signupCredits,
     },
   })
-
-  if (freePlan) {
-    await prisma.creditLog.create({
-      data: {
-        userId: user.id,
-        delta: freePlan.creditsPerMonth,
-        reason: 'subscription_renewal',
-        balanceAfter: freePlan.creditsPerMonth,
-      },
-    })
-  }
 
   const token = await signToken({ userId: user.id, email: user.email, role: user.role })
   setSessionCookie(token)
